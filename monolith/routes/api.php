@@ -49,3 +49,5 @@ Route::get('/health/integrations', function () {
         'services' => $results,
     ], $allHealthy ? 200 : 503);
 });
+
+Route::post('/v1/vehicles/debts', [\App\Http\Controllers\VehicleDebtIntegrationController::class, 'show']);

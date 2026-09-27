@@ -7,6 +7,7 @@ use App\Domain\Debt\CalculatedDebt;
 use App\Domain\Debt\Exceptions\AllProvidersUnavailableException;
 use App\Domain\Debt\Exceptions\UnknownDebtTypeException;
 use App\Domain\Debt\Services\DebtCalculationService;
+use App\Domain\Payment\Services\PaymentSimulator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -15,6 +16,7 @@ class VehicleDebtIntegrationController extends Controller
     public function __construct(
         private readonly VehicleDebtService $vehicleDebtService,
         private readonly DebtCalculationService $calculationService,
+        private readonly PaymentSimulator $paymentSimulator,
     ) {}
 
     public function show(Request $request): JsonResponse
@@ -35,6 +37,7 @@ class VehicleDebtIntegrationController extends Controller
         try {
             $providerResponse = $this->vehicleDebtService->getDebts($plate, $customOrder);
             $calculatedResult = $this->calculationService->calculate($providerResponse);
+            $paymentSimulation = $this->paymentSimulator->simulate($calculatedResult);
         } catch (UnknownDebtTypeException $e) {
             return response()->json([
                 'error' => 'unknown_debt_type',
@@ -59,6 +62,7 @@ class VehicleDebtIntegrationController extends Controller
                 'total_original' => $calculatedResult->totalOriginal->toDecimal(),
                 'total_atualizado' => $calculatedResult->totalUpdated->toDecimal(),
             ],
+            'pagamentos' => $paymentSimulation->toArray(),
         ]);
     }
 }

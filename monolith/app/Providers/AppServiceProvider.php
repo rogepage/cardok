@@ -49,6 +49,10 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(\App\Domain\Debt\Services\DebtCalculationService::class);
+
+        $this->app->singleton(\App\Domain\Payment\Services\PixCalculator::class);
+        $this->app->singleton(\App\Domain\Payment\Services\CreditCardCalculator::class);
+        $this->app->singleton(\App\Domain\Payment\Services\PaymentSimulator::class);
     }
 
     /**

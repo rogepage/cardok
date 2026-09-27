@@ -190,4 +190,46 @@ class DebtCalculationServiceTest extends TestCase
         $this->assertSame('0.00', $result->totalOriginal->toDecimal());
         $this->assertSame('0.00', $result->totalUpdated->toDecimal());
     }
+
+    public function test_ipva_cap_evaluated_before_rounding_with_fractional_cents(): void
+    {
+        // valor_original = 10.01 (1001 cents)
+        // 20% cap = 200.2 cents (R$ 2.002)
+        // at 100 days overdue:
+        // juros_calculado = 10.01 * 0.0033 * 100 = 3.3033 (330.33 cents)
+        // juros_teto = 200.2 cents
+        // min(juros_calculado, juros_teto) = 200.2 cents
+        // HALF_UP(200.2 cents) = 200 cents (R$ 2.00)
+        // valor_atualizado = 10.01 + 2.00 = 12.01
+        $dueDate = CarbonImmutable::parse('2024-01-31', 'UTC'); // 100 days before 2024-05-10
+        $debt = new Debt('IPVA', Money::fromDecimal('10.01'), $dueDate);
+
+        $calculated = $this->service->calculateSingleDebt($debt, DebtType::IPVA, $this->clock->now());
+
+        $this->assertSame(100, $calculated->daysOverdue);
+        $this->assertSame('2.00', $calculated->interestAmount->toDecimal());
+        $this->assertSame('12.01', $calculated->updatedAmount->toDecimal());
+    }
+
+    public function test_totals_calculated_from_already_normalized_monetary_values(): void
+    {
+        // Test demonstrating that totals are the direct sum of normalized 2-decimal amounts,
+        // without cumulative rounding drift or summing unrounded intermediate floats.
+        // Debt 1: MULTA 0.50, 1 day overdue -> 0.50 * 0.01 * 1 = 0.005 -> HALF_UP: 0.01 -> updated: 0.51
+        // Debt 2: MULTA 0.50, 1 day overdue -> 0.50 * 0.01 * 1 = 0.005 -> HALF_UP: 0.01 -> updated: 0.51
+        // Sum of normalized updated amounts: 0.51 + 0.51 = 1.02.
+        // (If intermediate values were summed unrounded: 0.505 + 0.505 = 1.010, which would yield 1.01).
+        $dueDate = CarbonImmutable::parse('2024-05-09', 'UTC'); // 1 day overdue
+        $response = new ProviderDebtResponse('XYZ9999', [
+            new Debt('MULTA', Money::fromDecimal('0.50'), $dueDate),
+            new Debt('MULTA', Money::fromDecimal('0.50'), $dueDate),
+        ]);
+
+        $result = $this->service->calculate($response);
+
+        $this->assertSame('1.00', $result->totalOriginal->toDecimal());
+        $this->assertSame('1.02', $result->totalUpdated->toDecimal());
+        $this->assertSame('0.51', $result->debts[0]->updatedAmount->toDecimal());
+        $this->assertSame('0.51', $result->debts[1]->updatedAmount->toDecimal());
+    }
 }

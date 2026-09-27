@@ -4,11 +4,12 @@ namespace App\Domain\Debt\Policies;
 
 use App\Domain\Debt\DebtType;
 use App\Domain\Debt\Money;
+use App\Domain\Debt\Rounding\HalfUpRounder;
 
 class MultaInterestPolicy implements DebtInterestPolicyInterface
 {
     /**
-     * MULTA rate: 1.00% per day (1 / 100).
+     * MULTA rate: 1.00% per day = 0.01 = 1 / 100.
      */
     private const int RATE_NUMERATOR = 1;
     private const int RATE_DENOMINATOR = 100;
@@ -26,11 +27,12 @@ class MultaInterestPolicy implements DebtInterestPolicyInterface
 
         $cents = $originalAmount->getAmountInCents();
 
-        // Simple interest: cents * 0.01 * days
-        // Half-up rounding with integer arithmetic: (numerator + denominator / 2) / denominator
-        $numerator = $cents * self::RATE_NUMERATOR * $daysOverdue;
-        $calculatedInterestCents = intdiv($numerator + (self::RATE_DENOMINATOR / 2), self::RATE_DENOMINATOR);
+        // 1. Calculate unrounded interest: valor_original * 0.01 * dias
+        $calculatedNumerator = $cents * self::RATE_NUMERATOR * $daysOverdue;
 
-        return Money::fromCents($calculatedInterestCents);
+        // 2. Round interest to 2 decimal places (cents) using HALF_UP
+        $roundedCents = HalfUpRounder::round($calculatedNumerator, self::RATE_DENOMINATOR);
+
+        return Money::fromCents($roundedCents);
     }
 }

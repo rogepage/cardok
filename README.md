@@ -405,10 +405,39 @@ Após o cálculo dos juros com arredondamento `HALF_UP`:
 valor_atualizado = valor_original + juros
 ```
 
-### 9.4. Precisão Monetária Sem Uso de `float`
+### 9.4. Política de Arredondamento (HALF_UP) e Precisão Monetária
 
-* Todo o cálculo monetário é realizado internamente em centavos inteiros (`int $amountInCents`) no Value Object `Money`.
-* O arredondamento `HALF_UP` é executado com aritmética inteira exata: `intdiv(numerador + (denominador / 2), denominador)`, eliminando imprecisões de ponto flutuante em PHP.
+A política de arredondamento é consistente em todo o domínio e obedece às seguintes regras:
+
+* **Modo**: `HALF_UP` (arredonda frações $\ge 0,5$ centavos para cima, afastando de zero).
+* **Escala**: 2 casas decimais (precisão ao centavo).
+* **Sem Float**: É estritamente proibido o uso de tipos `float` para cálculos monetários no domínio, prevenindo erros de representação binária IEEE-754.
+* **Preservação de Precisão**: Cálculos intermediários preservam a máxima precisão matemática através de aritmética inteira e frações racionais no utilitário de domínio `App\Domain\Debt\Rounding\HalfUpRounder`. Arredonda-se estritamente no ponto final de definição do valor monetário de cada débito.
+
+#### Fluxo de Cálculo de Juros por Tipo
+
+1. **MULTA**:
+   * O juros é calculado com precisão total:
+     $$\text{juros\_calculado} = \text{valor\_original} \times 0.01 \times \text{dias\_atraso}$$
+   * Exemplo: $\text{R\$ } 300,50 \times 0.01 \times 85 = 255,425$.
+   * O arredondamento `HALF_UP` é aplicado sobre o juros resultante: $255,425 \xrightarrow{\text{HALF\_UP}} 255,43$.
+   * $\text{valor\_atualizado} = \text{valor\_original} + \text{juros\_arredondado} = 300,50 + 255,43 = 555,93$.
+
+2. **IPVA**:
+   * O cálculo dos juros e do teto preserva a precisão antes de qualquer arredondamento:
+     $$\text{juros\_calculado} = \text{valor\_original} \times 0.0033 \times \text{dias\_atraso}$$
+     $$\text{juros\_teto} = \text{valor\_original} \times 0.20$$
+     $$\text{juros\_aplicado} = \min(\text{juros\_calculado}, \text{juros\_teto})$$
+   * O arredondamento `HALF_UP` para 2 casas é aplicado sobre o `juros\_aplicado`.
+   * $\text{valor\_atualizado} = \text{valor\_original} + \text{juros\_aplicado}$.
+
+#### Totais Consolidados
+
+Os totais do resumo (`resumo`) são calculados pela soma dos valores monetários já normalizados para 2 casas decimais (centavos inteiros):
+* $\text{total\_original} = \sum \text{valores\_originais}$
+* $\text{total\_atualizado} = \sum \text{valores\_atualizados}$
+
+Não há múltiplos arredondamentos em cascata nem arredondamento sobre a soma de frações não arredondadas.
 
 ### 9.5. Tratamento de Tipos de Débito Desconhecidos (HTTP 422)
 

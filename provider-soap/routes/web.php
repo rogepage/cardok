@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\SoapDebtController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -12,4 +13,6 @@ Route::get('/health', function () {
         'service' => 'provider-soap',
     ]);
 });
+
+Route::post('/soap', [SoapDebtController::class, 'handle']);
 

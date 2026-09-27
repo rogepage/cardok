@@ -36,6 +36,19 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->singleton(ProviderResolver::class);
         $this->app->singleton(VehicleDebtService::class);
+
+        $this->app->singleton(\App\Domain\Debt\Clock\ClockInterface::class, function () {
+            return \App\Domain\Debt\Clock\FixedClock::fromIsoString('2024-05-10T00:00:00Z');
+        });
+
+        $this->app->singleton(\App\Domain\Debt\Policies\DebtInterestPolicyRegistry::class, function () {
+            return new \App\Domain\Debt\Policies\DebtInterestPolicyRegistry([
+                new \App\Domain\Debt\Policies\IpvaInterestPolicy(),
+                new \App\Domain\Debt\Policies\MultaInterestPolicy(),
+            ]);
+        });
+
+        $this->app->singleton(\App\Domain\Debt\Services\DebtCalculationService::class);
     }
 
     /**

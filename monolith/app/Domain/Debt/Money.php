@@ -45,6 +45,11 @@ readonly class Money
         return $this->amountInCents;
     }
 
+    public function add(Money $other): self
+    {
+        return new self($this->amountInCents + $other->amountInCents);
+    }
+
     public function equals(Money $other): bool
     {
         return $this->amountInCents === $other->amountInCents;

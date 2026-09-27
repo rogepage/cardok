@@ -58,14 +58,22 @@ class VehicleDebtIntegrationTest extends TestCase
                 'debitos' => [
                     [
                         'tipo' => 'IPVA',
-                        'valor' => '1500.00',
+                        'valor_original' => '1500.00',
+                        'valor_atualizado' => '1800.00',
                         'vencimento' => '2024-01-10',
+                        'dias_atraso' => 121,
                     ],
                     [
                         'tipo' => 'MULTA',
-                        'valor' => '300.50',
+                        'valor_original' => '300.50',
+                        'valor_atualizado' => '555.93',
                         'vencimento' => '2024-02-15',
+                        'dias_atraso' => 85,
                     ],
+                ],
+                'resumo' => [
+                    'total_original' => '1800.50',
+                    'total_atualizado' => '2355.93',
                 ],
             ]);
     }
@@ -104,14 +112,22 @@ class VehicleDebtIntegrationTest extends TestCase
                 'debitos' => [
                     [
                         'tipo' => 'IPVA',
-                        'valor' => '1500.00',
+                        'valor_original' => '1500.00',
+                        'valor_atualizado' => '1800.00',
                         'vencimento' => '2024-01-10',
+                        'dias_atraso' => 121,
                     ],
                     [
                         'tipo' => 'MULTA',
-                        'valor' => '300.50',
+                        'valor_original' => '300.50',
+                        'valor_atualizado' => '555.93',
                         'vencimento' => '2024-02-15',
+                        'dias_atraso' => 85,
                     ],
+                ],
+                'resumo' => [
+                    'total_original' => '1800.50',
+                    'total_atualizado' => '2355.93',
                 ],
             ]);
     }
@@ -151,14 +167,22 @@ class VehicleDebtIntegrationTest extends TestCase
                 'debitos' => [
                     [
                         'tipo' => 'IPVA',
-                        'valor' => '1500.00',
+                        'valor_original' => '1500.00',
+                        'valor_atualizado' => '1800.00',
                         'vencimento' => '2024-01-10',
+                        'dias_atraso' => 121,
                     ],
                     [
                         'tipo' => 'MULTA',
-                        'valor' => '300.50',
+                        'valor_original' => '300.50',
+                        'valor_atualizado' => '555.93',
                         'vencimento' => '2024-02-15',
+                        'dias_atraso' => 85,
                     ],
+                ],
+                'resumo' => [
+                    'total_original' => '1800.50',
+                    'total_atualizado' => '2355.93',
                 ],
             ]);
     }
@@ -197,6 +221,41 @@ class VehicleDebtIntegrationTest extends TestCase
             ->assertExactJson([
                 'placa' => 'DEF5678',
                 'debitos' => [],
+                'resumo' => [
+                    'total_original' => '0.00',
+                    'total_atualizado' => '0.00',
+                ],
+            ]);
+    }
+
+    public function test_endpoint_returns_422_when_provider_returns_unknown_debt_type(): void
+    {
+        Http::fake([
+            'http://provider-rest:8000/api/v1/vehicles/ABC1234/debts' => Http::response([
+                'vehicle' => 'ABC1234',
+                'debts' => [
+                    [
+                        'type' => 'IPVA',
+                        'amount' => 1500.00,
+                        'due_date' => '2024-01-10',
+                    ],
+                    [
+                        'type' => 'LICENCIAMENTO',
+                        'amount' => 150.00,
+                        'due_date' => '2024-03-01',
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/v1/vehicles/debts', [
+            'placa' => 'ABC1234',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertExactJson([
+                'error' => 'unknown_debt_type',
+                'type' => 'LICENCIAMENTO',
             ]);
     }
 

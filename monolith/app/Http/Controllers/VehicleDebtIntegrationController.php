@@ -2,19 +2,16 @@
 
 namespace App\Http\Controllers;
 
-use App\Domain\Debt\Contracts\VehicleDebtProvider;
+use App\Application\VehicleDebt\VehicleDebtService;
 use App\Domain\Debt\Debt;
-use App\Domain\Debt\Exceptions\ProviderException;
-use App\Infrastructure\Providers\Rest\RestVehicleDebtProvider;
-use App\Infrastructure\Providers\Soap\SoapVehicleDebtProvider;
+use App\Domain\Debt\Exceptions\AllProvidersUnavailableException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class VehicleDebtIntegrationController extends Controller
 {
     public function __construct(
-        private readonly RestVehicleDebtProvider $restProvider,
-        private readonly SoapVehicleDebtProvider $soapProvider,
+        private readonly VehicleDebtService $vehicleDebtService,
     ) {}
 
     public function show(Request $request): JsonResponse
@@ -27,15 +24,18 @@ class VehicleDebtIntegrationController extends Controller
             ], 400);
         }
 
-        $providerName = strtolower(trim((string) $request->input('provider', 'rest')));
+        $customOrder = null;
+        if ($request->filled('provider')) {
+            $customOrder = [strtolower(trim((string) $request->input('provider')))];
+        }
 
-        /** @var VehicleDebtProvider $provider */
-        $provider = match ($providerName) {
-            'soap' => $this->soapProvider,
-            default => $this->restProvider,
-        };
-
-        $providerResponse = $provider->getDebts($plate);
+        try {
+            $providerResponse = $this->vehicleDebtService->getDebts($plate, $customOrder);
+        } catch (AllProvidersUnavailableException) {
+            return response()->json([
+                'error' => 'all_providers_unavailable',
+            ], 503);
+        }
 
         return response()->json([
             'placa' => $providerResponse->plate,

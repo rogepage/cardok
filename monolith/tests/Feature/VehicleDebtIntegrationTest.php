@@ -2,11 +2,31 @@
 
 namespace Tests\Feature;
 
+use App\Application\VehicleDebt\ProviderExecutor;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class VehicleDebtIntegrationTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config([
+            'services.providers.order' => ['rest', 'soap'],
+            'services.providers.retries' => 2,
+            'services.providers.backoff_ms' => 0,
+        ]);
+
+        $this->app->singleton(ProviderExecutor::class, function () {
+            return new ProviderExecutor(
+                maxRetries: 2,
+                initialBackoffMs: 0,
+                sleeper: fn () => null,
+            );
+        });
+    }
+
     public function test_endpoint_returns_debts_from_rest_provider(): void
     {
         Http::fake([
@@ -93,6 +113,70 @@ class VehicleDebtIntegrationTest extends TestCase
                         'vencimento' => '2024-02-15',
                     ],
                 ],
+            ]);
+    }
+
+    public function test_endpoint_automatically_uses_configured_order_and_falls_back_to_soap_when_rest_fails(): void
+    {
+        $soapXml = '<?xml version="1.0" encoding="UTF-8"?>
+<response>
+    <plate>ABC1234</plate>
+    <debts>
+        <debt>
+            <category>IPVA</category>
+            <value>1500.00</value>
+            <expiration>2024-01-10</expiration>
+        </debt>
+        <debt>
+            <category>MULTA</category>
+            <value>300.50</value>
+            <expiration>2024-02-15</expiration>
+        </debt>
+    </debts>
+</response>';
+
+        Http::fake([
+            'http://provider-rest:8000/api/v1/vehicles/ABC1234/debts' => Http::response(['error' => 'fail'], 500),
+            'http://provider-soap:8000/soap' => Http::response($soapXml, 200, ['Content-Type' => 'application/xml']),
+        ]);
+
+        // Request without explicit provider
+        $response = $this->postJson('/api/v1/vehicles/debts', [
+            'placa' => 'ABC1234',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertExactJson([
+                'placa' => 'ABC1234',
+                'debitos' => [
+                    [
+                        'tipo' => 'IPVA',
+                        'valor' => '1500.00',
+                        'vencimento' => '2024-01-10',
+                    ],
+                    [
+                        'tipo' => 'MULTA',
+                        'valor' => '300.50',
+                        'vencimento' => '2024-02-15',
+                    ],
+                ],
+            ]);
+    }
+
+    public function test_endpoint_returns_503_when_all_providers_fail(): void
+    {
+        Http::fake([
+            'http://provider-rest:8000/api/v1/vehicles/ABC1234/debts' => Http::response(['error' => 'rest fail'], 500),
+            'http://provider-soap:8000/soap' => Http::response('<error>soap fail</error>', 500),
+        ]);
+
+        $response = $this->postJson('/api/v1/vehicles/debts', [
+            'placa' => 'ABC1234',
+        ]);
+
+        $response->assertStatus(503)
+            ->assertExactJson([
+                'error' => 'all_providers_unavailable',
             ]);
     }
 

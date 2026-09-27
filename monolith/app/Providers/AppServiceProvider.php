@@ -26,6 +26,16 @@ class AppServiceProvider extends ServiceProvider
                 timeout: (int) config('services.providers.timeout', 2),
             );
         });
+
+        $this->app->singleton(ProviderExecutor::class, function () {
+            return new ProviderExecutor(
+                maxRetries: (int) config('services.providers.retries', 2),
+                initialBackoffMs: (int) config('services.providers.backoff_ms', 100),
+            );
+        });
+
+        $this->app->singleton(ProviderResolver::class);
+        $this->app->singleton(VehicleDebtService::class);
     }
 
     /**

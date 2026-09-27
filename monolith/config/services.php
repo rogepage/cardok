@@ -41,6 +41,7 @@ return [
         'order' => explode(',', env('PROVIDER_ORDER', 'rest,soap')),
         'timeout' => (int) env('PROVIDER_TIMEOUT', 2),
         'retries' => (int) env('PROVIDER_RETRIES', 2),
+        'backoff_ms' => (int) env('PROVIDER_BACKOFF_MS', 100),
     ],
 
     'payment' => [

@@ -4,19 +4,20 @@ namespace App\Domain\Debt\Policies;
 
 use App\Domain\Debt\DebtType;
 use App\Domain\Debt\Money;
+use App\Domain\Debt\Rounding\HalfUpRounder;
 
 class IpvaInterestPolicy implements DebtInterestPolicyInterface
 {
     /**
-     * IPVA rate: 0.33% per day (33 / 10000).
+     * IPVA rate: 0.33% per day = 0.0033 = 33 / 10,000.
      */
     private const int RATE_NUMERATOR = 33;
     private const int RATE_DENOMINATOR = 10000;
 
     /**
-     * IPVA cap: 20% of original value (20 / 100).
+     * IPVA cap: 20% = 0.20 = 2,000 / 10,000.
      */
-    private const int CAP_PERCENTAGE = 20;
+    private const int CAP_NUMERATOR = 2000;
 
     public function supports(DebtType $type): bool
     {
@@ -31,16 +32,18 @@ class IpvaInterestPolicy implements DebtInterestPolicyInterface
 
         $cents = $originalAmount->getAmountInCents();
 
-        // Simple interest: cents * 0.0033 * days
-        // Half-up rounding with integer arithmetic: (numerator + denominator / 2) / denominator
-        $numerator = $cents * self::RATE_NUMERATOR * $daysOverdue;
-        $calculatedInterestCents = intdiv($numerator + (self::RATE_DENOMINATOR / 2), self::RATE_DENOMINATOR);
+        // 1. Calculate unrounded interest numerator: valor_original * 0.0033 * dias_atraso
+        $calculatedNumerator = $cents * self::RATE_NUMERATOR * $daysOverdue;
 
-        // Cap: 20% of original value
-        $capCents = intdiv($cents * self::CAP_PERCENTAGE, 100);
+        // 2. Calculate unrounded cap numerator: valor_original * 0.20
+        $capNumerator = $cents * self::CAP_NUMERATOR;
 
-        $appliedInterestCents = min($calculatedInterestCents, $capCents);
+        // 3. Apply cap before rounding: min(juros_calculado, juros_teto)
+        $appliedNumerator = min($calculatedNumerator, $capNumerator);
 
-        return Money::fromCents($appliedInterestCents);
+        // 4. Round applied interest to 2 decimal places (cents) using HALF_UP
+        $roundedCents = HalfUpRounder::round($appliedNumerator, self::RATE_DENOMINATOR);
+
+        return Money::fromCents($roundedCents);
     }
 }

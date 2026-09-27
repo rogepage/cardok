@@ -486,13 +486,131 @@ Content-Type: application/json
     "resumo": {
         "total_original": "1800.50",
         "total_atualizado": "2355.93"
+    },
+    "pagamentos": {
+        "opcoes": [
+            {
+                "tipo": "TOTAL",
+                "valor_base": "2355.93",
+                "pix": {
+                    "total_com_desconto": "2238.13"
+                },
+                "cartao_credito": {
+                    "parcelas": [
+                        {
+                            "quantidade": 1,
+                            "valor_parcela": "2355.93"
+                        },
+                        {
+                            "quantidade": 6,
+                            "valor_parcela": "427.72"
+                        },
+                        {
+                            "quantidade": 12,
+                            "valor_parcela": "229.67"
+                        }
+                    ]
+                }
+            },
+            {
+                "tipo": "SOMENTE_IPVA",
+                "valor_base": "1800.00",
+                "pix": {
+                    "total_com_desconto": "1710.00"
+                },
+                "cartao_credito": {
+                    "parcelas": [
+                        {
+                            "quantidade": 1,
+                            "valor_parcela": "1800.00"
+                        },
+                        {
+                            "quantidade": 6,
+                            "valor_parcela": "326.79"
+                        },
+                        {
+                            "quantidade": 12,
+                            "valor_parcela": "175.48"
+                        }
+                    ]
+                }
+            },
+            {
+                "tipo": "SOMENTE_MULTA",
+                "valor_base": "555.93",
+                "pix": {
+                    "total_com_desconto": "528.13"
+                },
+                "cartao_credito": {
+                    "parcelas": [
+                        {
+                            "quantidade": 1,
+                            "valor_parcela": "555.93"
+                        },
+                        {
+                            "quantidade": 6,
+                            "valor_parcela": "100.93"
+                        },
+                        {
+                            "quantidade": 12,
+                            "valor_parcela": "54.20"
+                        }
+                    ]
+                }
+            }
+        ]
     }
 }
 ```
 
 ---
 
-## 10. Comandos Úteis
+## 10. Domínio de Pagamentos e Simulação de Opções
+
+O domínio de **Pagamentos** (`App\Domain\Payment`) é completamente desacoplado do domínio de débitos (`App\Domain\Debt`), gateways externos e controllers HTTP. O simulador (`PaymentSimulator`) recebe os débitos já calculados (`CalculatedVehicleDebts`) e gera as alternativas de liquidação disponíveis.
+
+### 10.1. Valor Base: Atualizado vs. Original
+
+O `valor_base` de qualquer modalidade de pagamento é **sempre o valor atualizado** com juros de atraso (`valor_atualizado`), nunca o valor original de face (`valor_original`).
+* Exemplo: IPVA original de R$ 1.500,00 com R$ 300,00 de juros resulta em `valor_base = 1800.00`.
+
+### 10.2. Agrupamento por Tipo e Ordem Determinística
+
+1. **Opção `TOTAL`**:
+   * Sempre apresentada como primeira opção.
+   * Utiliza o `total_atualizado` consolidado de todos os débitos do veículo.
+2. **Opções Parciais (`SOMENTE_<TIPO>`)**:
+   * Débitos do mesmo tipo são consolidados em uma única opção parcial.
+   * A ordem das opções segue estritamente a ordem de primeira aparição na lista de débitos original.
+   * Se um veículo possuir múltiplos débitos de IPVA (ex: R$ 100, R$ 200, R$ 300), é gerada apenas uma opção `SOMENTE_IPVA` com `valor_base = 600.00`.
+3. **Veículo sem Débitos**:
+   * Quando o veículo não possui débitos pendentes, o simulador retorna `"pagamentos": {"opcoes": []}`, sem inventar opções fictícias.
+
+### 10.3. PIX com Desconto de 5%
+
+* Aplicado sobre o `valor_base` de **todas** as opções (TOTAL e parciais):
+  $$\text{total\_com\_desconto} = \text{valor\_base} \times 0.95$$
+* Arredondamento executado via `HALF_UP` para 2 casas decimais.
+
+### 10.4. Cartão de Crédito e Tabela Price (PMT)
+
+O cartão de crédito oferece exatamente 3 modalidades de parcelamento:
+* **1x (à vista)**: sem juros ($\text{valor\_parcela} = \text{valor\_base}$).
+* **6x e 12x**: amortização pelo sistema Francês/Price com taxa de juros compostos de **2,5% ao mês** ($i = 0.025$).
+  $$\text{PMT} = \frac{\text{base} \times i \times (1+i)^n}{(1+i)^n - 1}$$
+* Preserva-se precisão matemática total nas etapas de potenciação e quociente, aplicando `HALF_UP` para 2 casas exclusivamente no valor final da parcela.
+
+### 10.5. Tabela Resumo do Cenário Oficial (Placa `ABC1234`)
+
+| Opção | Valor Base | PIX (5% desc.) | Cartão 1x | Cartão 6x (2,5% a.m.) | Cartão 12x (2,5% a.m.) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **TOTAL** | R$ 2.355,93 | R$ 2.238,13 | R$ 2.355,93 | R$ 427,72 | R$ 229,67 |
+| **SOMENTE_IPVA** | R$ 1.800,00 | R$ 1.710,00 | R$ 1.800,00 | R$ 326,79 | R$ 175,48 |
+| **SOMENTE_MULTA** | R$ 555,93 | R$ 528,13 | R$ 555,93 | R$ 100,93 | R$ 54,20 |
+
+---
+
+## 11. Comandos Úteis
 
 - **Validar sintaxe do Docker Compose**:
   ```bash
@@ -501,6 +619,12 @@ Content-Type: application/json
 - **Verificar status e saúde dos containers**:
   ```bash
   docker compose ps
+  ```
+- **Executar todos os testes automatizados**:
+  ```bash
+  docker compose exec monolith php artisan test
+  docker compose exec provider-rest php artisan test
+  docker compose exec provider-soap php artisan test
   ```
 - **Parar o ambiente**:
   ```bash

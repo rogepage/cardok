@@ -275,7 +275,97 @@ docker compose exec provider-soap php artisan test
 
 ---
 
-## 8. Comandos Úteis
+## 8. Resiliência: Retry, Fallback e Observabilidade
+
+O monólito Cardok implementa uma estratégia de resiliência baseada em **Retry com Backoff Linear** e **Fallback Sequencial** entre provedores externos de débitos veiculares.
+
+### 8.1. Parâmetros de Configuração
+
+Configurados no arquivo `.env`:
+
+```env
+# Ordem de tentativa dos provedores (separados por vírgula)
+PROVIDER_ORDER=rest,soap
+
+# Timeout máximo em segundos por tentativa individual de cada provider
+PROVIDER_TIMEOUT=2
+
+# Número de retentativas após a tentativa inicial (2 = 1 inicial + 2 retries = 3 tentativas totais)
+PROVIDER_RETRIES=2
+
+# Tempo base de espera entre retentativas em milissegundos
+PROVIDER_BACKOFF_MS=100
+```
+
+### 8.2. Fluxo de Execução e Fallback
+
+```text
+POST /api/v1/vehicles/debts {"placa":"ABC1234"}
+   │
+   ▼
+[Provider 1 - ex: REST]
+   ├── Tentativa 1 (timeout 2s)  ──> Falha (5xx ou Timeout)
+   ├── Backoff (100ms)
+   ├── Tentativa 2 (Retry #1)    ──> Falha
+   ├── Backoff (200ms)
+   └── Tentativa 3 (Retry #2)    ──> Falha
+   │
+   ▼ (Fallback Automático)
+[Provider 2 - ex: SOAP]
+   └── Tentativa 1 (timeout 2s)  ──> Sucesso (200 OK)
+   │
+   ▼
+Resposta Unificada ao Cliente (HTTP 200 com Modelo Canônico)
+```
+
+### 8.3. Política de Retry e Fallback Imediato
+
+* **Falhas de Infraestrutura (Elegíveis para Retry)**:
+  * Timeouts de conexão ou leitura;
+  * Conexão recusada / falhas de DNS;
+  * Erros de servidor HTTP (`500`, `502`, `503`, `504`).
+* **Erros Contratuais (Fallback Imediato sem Retry)**:
+  * Resposta estruturalmente inválida (`invalid_response`), XML malformado ou ausência de campos essenciais. Nesses casos, uma retentativa imediata não consertaria a estrutura da resposta do provedor, logo o sistema faz fallback imediato para o próximo provedor.
+
+### 8.4. Comportamento Quando Todos os Provedores Falham
+
+Se todos os provedores da cadeia (`PROVIDER_ORDER`) esgotarem suas tentativas sem sucesso, o monólito responde com **HTTP 503 Service Unavailable**:
+
+```json
+{
+    "error": "all_providers_unavailable"
+}
+```
+
+> **Segurança**: Detalhes técnicos e stack traces não são expostos na resposta HTTP, sendo registrados exclusivamente nos logs estruturados.
+
+### 8.5. Observabilidade e Logs Estruturados
+
+Eventos de falha, retentativas e fallback são emitidos com contexto estruturado e **mascaramento de dados sensíveis** (LGPD / Segurança):
+
+* **Formato da Placa nos Logs**: os últimos caracteres são mascarados (ex: `ABC****`).
+* **Campos Registrados**: `event`, `provider`, `attempt`, `error`, `duration_ms`, `plate`.
+
+Exemplo de log emitido:
+```json
+{
+    "event": "vehicle_provider_failed",
+    "provider": "rest",
+    "attempt": 2,
+    "error": "REST provider responded with server error status 500",
+    "duration_ms": 2004,
+    "plate": "ABC****",
+    "is_fatal_for_provider": false
+}
+```
+
+### 8.6. Consistência e Decisão Arquitetural
+
+O fallback existe **estritamente para disponibilidade**. Se o primeiro provedor responder com sucesso, os provedores subsequentes não são consultados. Caso o primeiro falhe e o segundo assuma, a resposta retornada pelo segundo provedor é considerada autoritativa para a operação. Não há conciliação ou merge de débitos entre provedores concorrentes nesta fase.
+
+---
+
+## 9. Comandos Úteis
 
 - **Validar sintaxe do Docker Compose**:
   ```bash

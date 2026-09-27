@@ -490,4 +490,55 @@ class VehicleDebtIntegrationTest extends TestCase
                 'error' => 'A placa do veiculo e obrigatoria.',
             ]);
     }
+
+    public function test_endpoint_returns_bad_request_when_plate_format_is_invalid(): void
+    {
+        $response = $this->postJson('/api/v1/vehicles/debts', [
+            'placa' => 'INVALID_PLATE',
+        ]);
+
+        $response->assertStatus(400)
+            ->assertJson([
+                'error' => 'A placa do veiculo informada e invalida.',
+            ]);
+    }
+
+    public function test_endpoint_accepts_mercosul_plate_format(): void
+    {
+        Http::fake([
+            'http://provider-rest:8000/api/v1/vehicles/BRA2E19/debts' => Http::response([
+                'vehicle' => 'BRA2E19',
+                'debts' => [],
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/v1/vehicles/debts', [
+            'placa' => 'bra2e19',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'placa' => 'BRA2E19',
+                'debitos' => [],
+            ]);
+    }
+
+    public function test_endpoint_normalizes_whitespace_and_casing(): void
+    {
+        Http::fake([
+            'http://provider-rest:8000/api/v1/vehicles/ABC1234/debts' => Http::response([
+                'vehicle' => 'ABC1234',
+                'debts' => [],
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/v1/vehicles/debts', [
+            'placa' => "  abc1234 \n ",
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'placa' => 'ABC1234',
+            ]);
+    }
 }

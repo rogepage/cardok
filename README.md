@@ -610,7 +610,48 @@ O cartão de crédito oferece exatamente 3 modalidades de parcelamento:
 
 ---
 
-## 11. Comandos Úteis
+## 11. Interface Web (Laravel Livewire)
+
+O Cardok conta com uma camada visual reativa desenvolvida com **Laravel Livewire** e estilizada com **Tailwind CSS**, permitindo consulta e simulação interativa de débitos veiculares.
+
+### 11.1. Acesso à Interface
+
+A interface está disponível na raiz do monólito:
+```text
+http://localhost:8000/
+```
+
+### 11.2. Recursos e Comportamento Visual
+
+- **Consulta Rápida por Placa**:
+  - Aceita placas no formato Mercosul (`ABC1D23`) ou formato tradicional Cinza (`ABC1234`).
+  - Normalização automática (remoção de espaços e conversão para caixa alta).
+  - Feedback visual imediato com desativação do botão de consulta e indicador de progresso (*spinner*) durante a requisição (`wire:loading`).
+- **Tratamento Amigável de Erros**:
+  - Validação de formato com mensagem explicativa em português (`invalid_plate`).
+  - Mensagem contextual caso os provedores externos estejam indisponíveis (`all_providers_unavailable`), sem expor falhas internas ou stack traces.
+- **Estado de Veículo sem Débitos**:
+  - Mensagem explicativa dedicada para veículos em situação regular: *"Nenhum débito encontrado. Seu veículo está sem débitos disponíveis para consulta."*.
+- **Visualização Completa dos Débitos**:
+  - Cards detalhados para cada pendência com tipo (`IPVA` ou `MULTA`), data de vencimento formatada (`DD/MM/AAAA`), dias de atraso, valor original e valor atualizado com encargos.
+- **Resumo Financeiro Consolidado**:
+  - Total original e total atualizado com juros e multas calculados conforme a data de referência oficial.
+- **Simulador de Formas de Pagamento**:
+  - Apresenta as opções disponíveis (`TOTAL`, `SOMENTE_IPVA`, `SOMENTE_MULTA`).
+  - Condição especial via **PIX com 5% de desconto**.
+  - Simulação de parcelamento no **Cartão de Crédito** em 1x (sem juros), 6x e 12x (calculados via Tabela Price a 2,5% a.m.).
+- **Design Totalmente Responsivo**:
+  - Layout limpo, semântico e fluido otimizado para navegação tanto em desktops quanto em smartphones.
+
+### 11.3. Arquitetura e Desacoplamento
+
+A interface Livewire (`App\Livewire\VehicleDebtLookup`) funciona estritamente como um **adaptador de apresentação**:
+- **Zero regras de negócio na camada visual**: não há cálculos financeiros, regras de retry, fallbacks ou chamadas diretas a clientes HTTP dentro dos componentes Livewire.
+- **Ponto de entrada unificado**: tanto o Livewire quanto o controller da API REST (`VehicleDebtIntegrationController`) invocam o mesmo método da camada de aplicação (`VehicleDebtService::consultDebts()`), garantindo paridade total entre a experiência web e a API programática.
+
+---
+
+## 12. Comandos Úteis
 
 - **Validar sintaxe do Docker Compose**:
   ```bash
@@ -634,3 +675,4 @@ O cartão de crédito oferece exatamente 3 modalidades de parcelamento:
   ```bash
   docker compose down -v
   ```
+

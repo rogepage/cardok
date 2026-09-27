@@ -1,0 +1,105 @@
+services:
+  monolith:
+    build:
+      context: ./monolith
+      dockerfile: Dockerfile
+    container_name: cardok-monolith
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=Cardok
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - APP_URL=http://localhost:8000
+      - PROVIDER_REST_URL=http://provider-rest:8000
+      - PROVIDER_SOAP_URL=http://provider-soap:8000
+      - PAYMENT_PROVIDER_URL=http://payment-provider:8000
+      - PROVIDER_ORDER=rest,soap
+      - PROVIDER_TIMEOUT=2
+      - PROVIDER_RETRIES=2
+    volumes:
+      - ./monolith:/var/www/html
+    networks:
+      - cardok-network
+    depends_on:
+      provider-rest:
+        condition: service_healthy
+      provider-soap:
+        condition: service_healthy
+      payment-provider:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8000/api/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  provider-rest:
+    build:
+      context: ./provider-rest
+      dockerfile: Dockerfile
+    container_name: cardok-provider-rest
+    ports:
+      - "8001:8000"
+    environment:
+      - APP_NAME=Cardok-Provider-Rest
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - APP_URL=http://localhost:8001
+    volumes:
+      - ./provider-rest:/var/www/html
+    networks:
+      - cardok-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8000/api/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  provider-soap:
+    build:
+      context: ./provider-soap
+      dockerfile: Dockerfile
+    container_name: cardok-provider-soap
+    ports:
+      - "8002:8000"
+    environment:
+      - APP_NAME=Cardok-Provider-Soap
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - APP_URL=http://localhost:8002
+    volumes:
+      - ./provider-soap:/var/www/html
+    networks:
+      - cardok-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  payment-provider:
+    build:
+      context: ./payment-provider
+      dockerfile: Dockerfile
+    container_name: cardok-payment-provider
+    expose:
+      - "8000"
+    volumes:
+      - ./payment-provider:/var/www/html
+    networks:
+      - cardok-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+networks:
+  cardok-network:
+    name: cardok-network
+    driver: bridge

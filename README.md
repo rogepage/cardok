@@ -138,7 +138,144 @@ curl -s http://localhost:8000/api/health/integrations | jq .
 
 ---
 
-## 7. Comandos Úteis
+## 7. External Providers
+
+Serviços externos simulados para consulta de débitos veiculares por placa.
+
+### Modos de Operação e Simulação de Falhas (`PROVIDER_MODE`)
+
+Configurado via variável de ambiente em cada provider ou no arquivo `.env` raiz:
+
+```env
+PROVIDER_MODE=success
+```
+
+| Modo | HTTP Status | Comportamento |
+| :--- | :--- | :--- |
+| `success` | `200` | Resposta normal com os débitos ou lista vazia |
+| `error` | `500` | Simulação de falha interna do provedor |
+| `timeout` | `200` | Atraso proposital de 5 segundos antes de responder |
+| `invalid_response` | `200` | Resposta com payload/XML corrompido fora do contrato |
+
+---
+
+### Provider REST
+
+Endpoint para consulta de débitos via JSON:
+
+```http
+GET /api/v1/vehicles/{plate}/debts
+```
+
+#### Exemplo de Requisição (com débitos):
+```bash
+curl -i http://localhost:8001/api/v1/vehicles/ABC1234/debts
+```
+
+**Resposta (HTTP 200):**
+```json
+{
+    "vehicle": "ABC1234",
+    "debts": [
+        {
+            "type": "IPVA",
+            "amount": 1500.0,
+            "due_date": "2024-01-10"
+        },
+        {
+            "type": "MULTA",
+            "amount": 300.5,
+            "due_date": "2024-02-15"
+        }
+    ]
+}
+```
+
+#### Exemplo de Requisição (sem débitos):
+```bash
+curl -i http://localhost:8001/api/v1/vehicles/DEF5678/debts
+```
+
+**Resposta (HTTP 200):**
+```json
+{
+    "vehicle": "DEF5678",
+    "debts": []
+}
+```
+
+---
+
+### Provider SOAP
+
+Endpoint funcional para consulta de débitos via XML:
+
+```http
+POST /soap
+```
+
+#### Exemplo de Requisição (com débitos):
+```bash
+curl -i -X POST http://localhost:8002/soap \
+  -H "Content-Type: application/xml" \
+  -d '<request><plate>ABC1234</plate></request>'
+```
+
+**Resposta (HTTP 200):**
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+    <plate>ABC1234</plate>
+    <debts>
+        <debt>
+            <category>IPVA</category>
+            <value>1500.00</value>
+            <expiration>2024-01-10</expiration>
+        </debt>
+        <debt>
+            <category>MULTA</category>
+            <value>300.50</value>
+            <expiration>2024-02-15</expiration>
+        </debt>
+    </debts>
+</response>
+```
+
+#### Exemplo de Requisição (sem débitos):
+```bash
+curl -i -X POST http://localhost:8002/soap \
+  -H "Content-Type: application/xml" \
+  -d '<request><plate>DEF5678</plate></request>'
+```
+
+**Resposta (HTTP 200):**
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+    <plate>DEF5678</plate>
+    <debts/>
+</response>
+```
+
+> **Atenção:** Quando não há débitos, o XML utiliza obrigatoriamente a tag auto-fechada `<debts/>` em vez de `<debts></debts>`.
+
+---
+
+### Execução de Testes Automatizados
+
+Para rodar os testes dos provedores diretamente via Docker:
+
+```bash
+# Testes do Provider REST
+docker compose exec provider-rest php artisan test
+
+# Testes do Provider SOAP
+docker compose exec provider-soap php artisan test
+```
+
+---
+
+## 8. Comandos Úteis
 
 - **Validar sintaxe do Docker Compose**:
   ```bash

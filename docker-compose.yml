@@ -47,6 +47,7 @@ services:
       - APP_ENV=local
       - APP_DEBUG=true
       - APP_URL=http://localhost:8001
+      - PROVIDER_MODE=${PROVIDER_MODE:-success}
     volumes:
       - ./provider-rest:/var/www/html
     networks:
@@ -70,6 +71,7 @@ services:
       - APP_ENV=local
       - APP_DEBUG=true
       - APP_URL=http://localhost:8002
+      - PROVIDER_MODE=${PROVIDER_MODE:-success}
     volumes:
       - ./provider-soap:/var/www/html
     networks:

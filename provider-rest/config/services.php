@@ -35,4 +35,6 @@ return [
         ],
     ],
 
+    'provider_mode' => env('PROVIDER_MODE', 'success'),
+
 ];

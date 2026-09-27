@@ -365,7 +365,103 @@ O fallback existe **estritamente para disponibilidade**. Se o primeiro provedor 
 
 ---
 
-## 9. Comandos Úteis
+## 9. Domínio e Regras de Juros
+
+As regras de negócio relacionadas a débitos veiculares são estritamente isoladas na camada de **Domínio** (`App\Domain\Debt`), sem acoplamento com HTTP, Controllers, banco de dados ou provedores externos.
+
+### 9.1. Data de Referência Fixa e Abstração de Relógio
+
+Para garantir determinismo e reprodutibilidade nos cálculos de atraso, o sistema utiliza uma abstração de relógio (`App\Domain\Debt\Clock\ClockInterface`), instanciada por padrão com:
+
+```text
+2024-05-10T00:00:00Z (UTC)
+```
+
+Todas as comparações de data são normalizadas em UTC e utilizam `CarbonImmutable`.
+
+### 9.2. Dias de Atraso
+
+O cálculo dos dias de atraso considera a diferença entre a data de referência e a data de vencimento:
+
+```text
+dias_atraso = max(0, data_referencia - data_vencimento)
+```
+
+* Se `data_vencimento >= data_referencia` (`dias_atraso == 0`): não há incidência de juros (`juros = 0` e `valor_atualizado = valor_original`).
+
+### 9.3. Políticas de Juros por Tipo de Débito
+
+O cálculo utiliza o padrão Strategy / Policy Registry (`DebtInterestPolicyRegistry`), permitindo extensão para novos tipos sem alterar classes existentes:
+
+| Tipo | Taxa Diária | Teto de Juros | Fórmula de Juros |
+| :--- | :--- | :--- | :--- |
+| `IPVA` | `0,33%` (`0.0033`) | `20%` do valor original | `min(valor_original × 0.0033 × dias_atraso, valor_original × 0.20)` |
+| `MULTA` | `1,00%` (`0.01`) | *Sem teto* | `valor_original × 0.01 × dias_atraso` |
+
+Após o cálculo dos juros com arredondamento `HALF_UP`:
+```text
+valor_atualizado = valor_original + juros
+```
+
+### 9.4. Precisão Monetária Sem Uso de `float`
+
+* Todo o cálculo monetário é realizado internamente em centavos inteiros (`int $amountInCents`) no Value Object `Money`.
+* O arredondamento `HALF_UP` é executado com aritmética inteira exata: `intdiv(numerador + (denominador / 2), denominador)`, eliminando imprecisões de ponto flutuante em PHP.
+
+### 9.5. Tratamento de Tipos de Débito Desconhecidos (HTTP 422)
+
+Os tipos suportados nesta fase são estritamente `IPVA` e `MULTA`:
+* Se o provedor retornar um tipo não suportado (ex: `LICENCIAMENTO`), o domínio lança `UnknownDebtTypeException`.
+* A camada HTTP intercepta essa exceção de domínio e responde com **HTTP 422 Unprocessable Content**:
+
+```json
+{
+    "error": "unknown_debt_type",
+    "type": "LICENCIAMENTO"
+}
+```
+
+> **Atenção**: Nenhum débito desconhecido é descartado silenciosamente ou renomeado para "OUTROS".
+
+### 9.6. Exemplo de Resposta Completa da API
+
+```http
+POST /api/v1/vehicles/debts
+Content-Type: application/json
+
+{"placa": "ABC1234"}
+```
+
+**Resposta (HTTP 200):**
+```json
+{
+    "placa": "ABC1234",
+    "debitos": [
+        {
+            "tipo": "IPVA",
+            "valor_original": "1500.00",
+            "valor_atualizado": "1800.00",
+            "vencimento": "2024-01-10",
+            "dias_atraso": 121
+        },
+        {
+            "tipo": "MULTA",
+            "valor_original": "300.50",
+            "valor_atualizado": "555.93",
+            "vencimento": "2024-02-15",
+            "dias_atraso": 85
+        }
+    ],
+    "resumo": {
+        "total_original": "1800.50",
+        "total_atualizado": "2355.93"
+    }
+}
+```
+
+---
+
+## 10. Comandos Úteis
 
 - **Validar sintaxe do Docker Compose**:
   ```bash

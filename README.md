@@ -363,6 +363,8 @@ Exemplo de log emitido:
 
 O fallback existe **estritamente para disponibilidade**. Se o primeiro provedor responder com sucesso, os provedores subsequentes não são consultados. Caso o primeiro falhe e o segundo assuma, a resposta retornada pelo segundo provedor é considerada autoritativa para a operação. Não há conciliação ou merge de débitos entre provedores concorrentes nesta fase.
 
+Os provedores podem retornar informações divergentes para a mesma placa. A estratégia atual prioriza disponibilidade e utiliza o primeiro provedor que responder com sucesso, portanto não realiza reconciliação entre provedores durante a requisição. Em uma evolução do sistema, poderíamos realizar consultas paralelas a múltiplos provedores e aplicar uma política de conciliação baseada em tipo, valor, vencimento e identificadores do débito, além de registrar divergências para análise.
+
 ---
 
 ## 9. Domínio e Regras de Juros

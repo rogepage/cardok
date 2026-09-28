@@ -24,7 +24,8 @@ class RestVehicleDebtProvider implements VehicleDebtProvider
     public function getDebts(string $plate): ProviderDebtResponse
     {
         $normalizedPlate = strtoupper(trim($plate));
-        $url = rtrim($this->baseUrl, '/') . "/api/v1/vehicles/{$normalizedPlate}/debts";
+        $encodedPlate = rawurlencode($normalizedPlate);
+        $url = rtrim($this->baseUrl, '/') . "/api/v1/vehicles/{$encodedPlate}/debts";
 
         try {
             $response = Http::timeout($this->timeout)->get($url);

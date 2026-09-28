@@ -541,4 +541,27 @@ class VehicleDebtIntegrationTest extends TestCase
                 'placa' => 'ABC1234',
             ]);
     }
+
+    public function test_endpoint_returns_bad_request_when_provider_is_invalid(): void
+    {
+        $response = $this->postJson('/api/v1/vehicles/debts', [
+            'placa' => 'ABC1234',
+            'provider' => 'unsupported_provider',
+        ]);
+
+        $response->assertStatus(400)
+            ->assertJson([
+                'error' => 'O provedor informado e invalido. Provedores permitidos: rest, soap.',
+            ]);
+    }
+
+    public function test_responses_contain_security_headers(): void
+    {
+        $response = $this->get('/api/health');
+
+        $response->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('X-Frame-Options', 'SAMEORIGIN')
+            ->assertHeader('X-XSS-Protection', '1; mode=block')
+            ->assertHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    }
 }

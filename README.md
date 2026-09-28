@@ -20,6 +20,7 @@
 - [11. Documentação da API](#11-documentação-da-api)
 - [12. Tratamento Defensivo de Erros](#12-tratamento-defensivo-de-erros)
 - [13. Observabilidade e Telemetria](#13-observabilidade-e-telemetria)
+- [Comandos úteis](#comandos-úteis)
 - [14. Como Executar com Docker](#14-como-executar-com-docker)
 - [15. Diagnóstico e Health Checks](#15-diagnóstico-e-health-checks)
 - [16. Execução de Testes Automatizados](#16-execução-de-testes-automatizados)
@@ -444,6 +445,27 @@ O endpoint expõe contadores atômicos mantidos em memória:
 O endpoint `/api/health/integrations` inclui o cabeçalho HTTP:
 - `X-Cache: HIT`: Resposta servida a partir da memória/cache transitório em `< 15ms`.
 - `X-Cache: MISS`: Resposta originada de consulta ativa aos 3 provedores externos.
+
+---
+
+## Comandos úteis
+
+O projeto conta com um `Makefile` na raiz para agilizar a operação, diagnóstico e validação técnica:
+
+| Comando | Descrição |
+| :--- | :--- |
+| `make help` | Lista os comandos disponíveis |
+| `make up` | Inicia o ambiente completo em background |
+| `make down` | Para o ambiente (preserva volumes de dados) |
+| `make restart` | Reinicia todos os serviços |
+| `make status` | Mostra o status e saúde dos contêineres |
+| `make logs` | Acompanha os logs unificados em tempo real |
+| `make test` | Executa a suíte de testes automatizados no monólito |
+| `make health` | Verifica a saúde e conectividade das integrações |
+| `make check` | Executa validação geral de conformidade (config, status, testes, saúde) |
+| `make shell` | Abre shell interativo no contêiner do monólito |
+| `make artisan` | Executa comandos Artisan (ex: `make artisan CMD="about"`) |
+| `make demo` | Executa todos os cenários de demonstração técnica |
 
 ---
 

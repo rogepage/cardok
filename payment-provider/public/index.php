@@ -14,6 +14,23 @@ if ($method === 'GET' && ($uri === '/health' || $uri === '/health/')) {
     exit(0);
 }
 
+// Mock contract for future settlement evolution (NOT invoked by Cardok main consultation flow)
+if ($method === 'POST' && ($uri === '/charge' || $uri === '/charge/')) {
+    $rawInput = file_get_contents('php://input');
+    $data = json_decode($rawInput, true) ?: [];
+
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'status' => 'approved',
+        'transaction_id' => 'mock_tx_' . bin2hex(random_bytes(8)),
+        'amount' => $data['amount'] ?? '0.00',
+        'method' => $data['method'] ?? 'unknown',
+        'simulated' => true,
+        'message' => 'Simulated payment receipt. No real financial transaction was executed.',
+    ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+    exit(0);
+}
+
 http_response_code(404);
 header('Content-Type: application/json; charset=utf-8');
 echo json_encode([

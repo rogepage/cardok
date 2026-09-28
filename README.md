@@ -608,6 +608,36 @@ O cartão de crédito oferece exatamente 3 modalidades de parcelamento:
 | **SOMENTE_IPVA** | R$ 1.800,00 | R$ 1.710,00 | R$ 1.800,00 | R$ 326,79 | R$ 175,48 |
 | **SOMENTE_MULTA** | R$ 555,93 | R$ 528,13 | R$ 555,93 | R$ 100,93 | R$ 54,20 |
 
+### 10.6. Implementado Atualmente vs. Preparado para Evolução
+
+O Cardok separa com clareza conceitual a **Simulação de Pagamento** (*"Quanto o cliente pagaria?"*) da **Liquidação Financeira Real** (*"Efetivar uma transação bancária/adquirente"*):
+
+```text
+[Fluxo Implementado Atualmente — Simulação em Domínio Puro]
+Consulta de Débitos ──> Provedores (REST/SOAP) ──> Normalização Canônica ──> Juros de Atraso ──> PaymentSimulator (PIX & Price)
+```
+
+- **Fora de Escopo do Home Test**: Cobrança com adquirente, checkout, geração de QR Code PIX em bancos, webhook de conciliação ou persistência de cartões.
+- **Independência Operacional**: O container `payment-provider` **não** é chamado durante a consulta de débitos ou simulação. A indisponibilidade total do provedor de pagamento não compromete o cálculo de opções para o usuário.
+
+### 10.7. Blueprint para Evolução Futura (Liquidação Real)
+
+Quando o sistema evoluir para suportar checkout e pagamento real, a integração seguirá o padrão de **Portas e Adaptadores** já adotado para os débitos:
+
+```text
+[Evolução Futura — Liquidação Real com Adquirente/Gateway]
+Payment Application Service
+          │
+          ▼
+<<interface>> PaymentGatewayInterface  (Porta de Domínio)
+          │
+          ▼
+HttpPaymentGatewayAdapter              (Adaptador de Infraestrutura)
+          │
+          ▼
+payment-provider                       (POST /charge)
+```
+
 ---
 
 ## 11. Interface Web (Laravel Livewire)
@@ -677,7 +707,21 @@ Todas as respostas HTTP do monólito incluem cabeçalhos de proteção:
 
 ---
 
-## 13. Comandos Úteis
+## 13. Trade-offs
+
+### 13.1. Simulação no Domínio vs. Chamada a Provedor Externo
+> Optamos por manter a simulação de pagamentos dentro do domínio/aplicação porque o requisito do teste é calcular as opções de pagamento, e não efetivar uma transação. O payment-provider permanece provisionado como infraestrutura preparada para uma futura integração de liquidação. Isso evita introduzir uma dependência externa desnecessária no fluxo atual, mantendo um ponto claro de extensão para pagamentos reais.
+
+### 13.2. Manutenção do Container `payment-provider` sem Participação na Regra Atual
+- **Trade-off Negativo (Custo)**: Mantém um serviço ativo no Docker Compose consumindo uma porta interna e executando um processo PHP nativo, sem processar regras de negócio na jornada de consulta de débitos.
+- **Trade-off Positivo (Benefício Arquitetural)**: 
+  1. **Prontidão de Infraestrutura**: A topologia de rede (`cardok-network`), a resolução DNS interna entre containers e os mecanismos de monitoramento/health check (`/api/health/integrations` e CLI `cardok:check-services`) já ficam testados e operacionais desde o primeiro dia.
+  2. **Zero Acoplamento e Resiliência**: O fluxo principal do sistema permanece desacoplado de dependências desnecessárias. Mesmo que o serviço de pagamento fique fora do ar ou sofra instabilidade, a consulta de débitos e a simulação matemática de pagamentos continuam funcionando normalmente.
+  3. **Ponto Claro de Extensão**: O contrato mock `POST /charge` demonstra a interface para a evolução futura, evitando retrabalho de infraestrutura quando o checkout for implementado.
+
+---
+
+## 14. Comandos Úteis
 
 - **Validar sintaxe do Docker Compose**:
   ```bash
@@ -701,5 +745,6 @@ Todas as respostas HTTP do monólito incluem cabeçalhos de proteção:
   ```bash
   docker compose down -v
   ```
+
 
 

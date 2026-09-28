@@ -564,4 +564,52 @@ class VehicleDebtIntegrationTest extends TestCase
             ->assertHeader('X-XSS-Protection', '1; mode=block')
             ->assertHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     }
+
+    public function test_payment_provider_unavailability_does_not_affect_debt_consultation_and_simulation(): void
+    {
+        // Simulate payment provider completely down / responding with error 500,
+        // while the vehicle debt provider responds normally.
+        Http::fake([
+            'http://payment-provider:8000*' => Http::response(['error' => 'payment provider is down'], 500),
+            'http://provider-rest:8000/api/v1/vehicles/ABC1234/debts' => Http::response([
+                'vehicle' => 'ABC1234',
+                'debts' => [
+                    [
+                        'type' => 'IPVA',
+                        'amount' => 1500.00,
+                        'due_date' => '2024-01-10',
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/v1/vehicles/debts', [
+            'placa' => 'ABC1234',
+        ]);
+
+        // Consultation must succeed 100% and produce valid payment simulation without depending on payment-provider
+        $response->assertStatus(200)
+            ->assertJsonPath('placa', 'ABC1234')
+            ->assertJsonPath('resumo.total_atualizado', '1800.00')
+            ->assertJsonPath('pagamentos.opcoes.0.tipo', 'TOTAL')
+            ->assertJsonPath('pagamentos.opcoes.0.pix.total_com_desconto', '1710.00')
+            ->assertJsonPath('pagamentos.opcoes.0.cartao_credito.parcelas.0.quantidade', 1)
+            ->assertJsonPath('pagamentos.opcoes.0.cartao_credito.parcelas.0.valor_parcela', '1800.00');
+    }
+
+    public function test_health_integrations_endpoint_reports_service_status(): void
+    {
+        Http::fake([
+            'http://provider-rest:8000/api/health' => Http::response(['status' => 'ok', 'service' => 'provider-rest'], 200),
+            'http://provider-soap:8000/health' => Http::response(['status' => 'ok', 'service' => 'provider-soap'], 200),
+            'http://payment-provider:8000/health' => Http::response(['status' => 'ok', 'service' => 'payment-provider'], 200),
+        ]);
+
+        $response = $this->get('/api/health/integrations');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('status', 'ok')
+            ->assertJsonPath('services.payment-provider.status', 'ok')
+            ->assertJsonPath('services.payment-provider.http_code', 200);
+    }
 }

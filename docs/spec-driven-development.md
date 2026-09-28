@@ -68,3 +68,12 @@ Implementation (/speckit-implement)
 ## 5. Princípio de Isolamento
 
 A adoção do Spec Kit não altera a arquitetura existente do Cardok. As camadas de domínio, aplicação, infraestrutura, mock providers e containers Docker permanecem independentes do ferramental de especificação.
+
+---
+
+## 6. Features Desenvolvidas com Spec Kit
+
+| Feature | Branch | Especificação | Status |
+| :--- | :--- | :--- | :--- |
+| `001-health-check-cache` | `001-health-check-cache` | [`specs/001-health-check-cache/spec.md`](../specs/001-health-check-cache/spec.md) | ✅ Implementada |
+

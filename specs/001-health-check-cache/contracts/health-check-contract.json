@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HealthCheckIntegrationsResponse",
+  "type": "object",
+  "required": ["status", "service", "services"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["ok", "degraded"]
+    },
+    "service": {
+      "type": "string",
+      "const": "monolith"
+    },
+    "services": {
+      "type": "object",
+      "required": ["provider-rest", "provider-soap", "payment-provider"],
+      "properties": {
+        "provider-rest": {
+          "type": "object",
+          "required": ["status", "url", "http_code"],
+          "properties": {
+            "status": { "type": "string", "enum": ["ok", "error"] },
+            "url": { "type": "string" },
+            "http_code": { "type": "integer" },
+            "data": { "type": ["object", "null"] },
+            "error": { "type": ["string", "null"] }
+          }
+        },
+        "provider-soap": {
+          "type": "object",
+          "required": ["status", "url", "http_code"],
+          "properties": {
+            "status": { "type": "string", "enum": ["ok", "error"] },
+            "url": { "type": "string" },
+            "http_code": { "type": "integer" },
+            "data": { "type": ["object", "null"] },
+            "error": { "type": ["string", "null"] }
+          }
+        },
+        "payment-provider": {
+          "type": "object",
+          "required": ["status", "url", "http_code"],
+          "properties": {
+            "status": { "type": "string", "enum": ["ok", "error"] },
+            "url": { "type": "string" },
+            "http_code": { "type": "integer" },
+            "data": { "type": ["object", "null"] },
+            "error": { "type": ["string", "null"] }
+          }
+        }
+      }
+    }
+  }
+}

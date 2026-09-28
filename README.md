@@ -707,12 +707,118 @@ Todas as respostas HTTP do monólito incluem cabeçalhos de proteção:
 
 ---
 
-## 13. Trade-offs
+## 13. Observabilidade
 
-### 13.1. Simulação no Domínio vs. Chamada a Provedor Externo
+O Cardok adota uma arquitetura de **observabilidade pragmática e orientada a eventos**, projetada especificamente para diagnósticos rápidos em ambientes conteinerizados sem sobrecarregar a infraestrutura com daemons adicionais.
+
+### 13.1. Correlation ID / Request ID
+Toda requisição que trafega pelo Cardok recebe um identificador único de rastreabilidade:
+- **Header HTTP**: `X-Request-ID` (ex: `7f4d9c2a-e18d-4a11-893f-c6b7381014e2`).
+- **Comportamento**:
+  - Se o cliente enviar um `X-Request-ID` válido (alfanumérico, hífen/underscore até 64 caracteres), o valor é preservado.
+  - Caso contrário (ou se ausente), um UUID v4 seguro é gerado pelo `RequestIdMiddleware`.
+- **Propagação End-to-End**:
+  - Retornado no cabeçalho da resposta HTTP (`X-Request-ID`).
+  - Injetado no contexto global de logging (`Log::withContext(['request_id' => ...])`), assegurando que todas as linhas de log pertençam à mesma correlação.
+  - Propagado automaticamente para as chamadas externas aos provedores (`provider-rest` e `provider-soap`).
+
+```text
+Cliente (HTTP)
+   │
+   │ X-Request-ID: abc123
+   ▼
+Cardok Monolith
+   │
+   ├── [Log] request.received (request_id: abc123)
+   │
+   ├── REST provider (X-Request-ID: abc123)
+   │     └── [Log] provider.retry (attempt: 2, request_id: abc123)
+   │
+   ├── [Log] provider.fallback (from: rest, to: soap, request_id: abc123)
+   │
+   └── SOAP provider (X-Request-ID: abc123)
+         └── [Log] vehicle_debt.completed (request_id: abc123)
+```
+
+### 13.2. Logs Estruturados em JSON
+Os logs do sistema são formatados via `StructuredJsonFormatter` em JSON de linha única (NDJSON), prontos para ingestão por ferramentas de observabilidade (ex: Datadog, ELK, CloudWatch, Loki):
+
+```json
+{
+  "timestamp": "2026-09-28T13:36:03.114Z",
+  "level": "INFO",
+  "message": "provider.request",
+  "event": "provider.request",
+  "request_id": "scenario-2-fallback-verified",
+  "provider": "rest",
+  "operation": "get_debts",
+  "plate": "ABC****",
+  "attempt": 1
+}
+```
+
+### 13.3. Conformidade com LGPD (Mascaramento Centralizado)
+Para conformidade com a LGPD e evitar vazamento de dados de identificação veicular em discos e visualizadores de log, a placa **nunca** é gravada integralmente:
+- A classe centralizada `PlateMasker` converte placas tradicionais e Mercosul para formato ofuscado (ex: `ABC1234` ou `BRA2E19` tornam-se `ABC****` e `BRA****`).
+- O mascaramento é aplicado uniformemente nos logs de requisição, retries, fallbacks, respostas e erros de validação.
+
+### 13.4. Ciclo de Eventos Padronizados
+
+| Evento | Nível | Descrição | Atributos Principais |
+| :--- | :--- | :--- | :--- |
+| `request.received` | `INFO` | Requisição HTTP recebida na API | `request_id`, `method`, `path` |
+| `provider.request` | `INFO` | Início de consulta a um provedor externo | `request_id`, `provider`, `operation`, `plate`, `attempt` |
+| `provider.response`| `INFO` | Resposta bem-sucedida do provedor | `request_id`, `provider`, `status`, `duration_ms`, `debts_count` |
+| `provider.retry`   | `WARNING` | Tentativa transitória de reenvio | `request_id`, `provider`, `attempt`, `max_attempts`, `reason`, `backoff_ms` |
+| `provider.fallback`| `WARNING` | Alternância para o próximo provedor | `request_id`, `from`, `to`, `reason`, `plate` |
+| `vehicle_debt.completed` | `INFO` | Consulta e cálculo concluídos com êxito | `request_id`, `plate`, `provider`, `debts_count`, `duration_ms` |
+| `vehicle_debt.failed` | `ERROR` / `WARN` | Falha definitiva ou erro de validação | `request_id`, `plate`, `error_type`, `status_code`, `reason`, `duration_ms` |
+
+### 13.5. Métricas Operacionais Leves (`GET /api/metrics`)
+Sem demandar containers adicionais como Prometheus ou exporters pesados, o Cardok expõe métricas em tempo real via endpoint HTTP e persistência resiliente em cache:
+
+```bash
+curl -s http://localhost:8000/api/metrics | jq .
+```
+
+Exemplo de resposta:
+```json
+{
+  "status": "ok",
+  "metrics": {
+    "vehicle_debt_requests_total": 42,
+    "vehicle_debt_success_total": 38,
+    "vehicle_debt_error_total": 4,
+    "provider_requests_total": 55,
+    "provider_failures_total": 17,
+    "provider_retries_total": 12,
+    "provider_fallbacks_total": 5
+  }
+}
+```
+
+### 13.6. Health Checks: Aplicação vs. Dependências
+Diferenciamos categoricamente a saúde operacional do monólito da disponibilidade transitória de integrações de terceiros:
+1. `GET /api/health`:
+   - Verifica exclusivamente a integridade interna da aplicação Cardok (processo ativo, framework inicializado).
+   - Usado pelo health check nativo do Docker Compose.
+2. `GET /api/health/integrations`:
+   - Testa a conectividade síncrona com `provider-rest`, `provider-soap` e `payment-provider`.
+   - Se um provedor externo cair, a resposta indica status `degraded` e HTTP 503, demonstrando explicitamente que o monólito continua ativo mesmo quando integrações estão instáveis.
+3. `php artisan cardok:check-services`:
+   - Comando CLI para diagnóstico rápido de conectividade inter-container via terminal.
+
+---
+
+## 14. Trade-offs
+
+### 14.1. Estratégia de Observabilidade (Home Test Staff Engineer)
+> Para este Home Test optamos por observabilidade baseada em logs estruturados e correlation ID, sem introduzir uma stack completa como Prometheus, Grafana ou OpenTelemetry. Isso mantém a infraestrutura simples e suficiente para demonstrar diagnóstico de falhas, retry, fallback e latência. Uma evolução futura poderia exportar esses mesmos eventos para uma plataforma centralizada de observabilidade.
+
+### 14.2. Simulação no Domínio vs. Chamada a Provedor Externo
 > Optamos por manter a simulação de pagamentos dentro do domínio/aplicação porque o requisito do teste é calcular as opções de pagamento, e não efetivar uma transação. O payment-provider permanece provisionado como infraestrutura preparada para uma futura integração de liquidação. Isso evita introduzir uma dependência externa desnecessária no fluxo atual, mantendo um ponto claro de extensão para pagamentos reais.
 
-### 13.2. Manutenção do Container `payment-provider` sem Participação na Regra Atual
+### 14.3. Manutenção do Container `payment-provider` sem Participação na Regra Atual
 - **Trade-off Negativo (Custo)**: Mantém um serviço ativo no Docker Compose consumindo uma porta interna e executando um processo PHP nativo, sem processar regras de negócio na jornada de consulta de débitos.
 - **Trade-off Positivo (Benefício Arquitetural)**: 
   1. **Prontidão de Infraestrutura**: A topologia de rede (`cardok-network`), a resolução DNS interna entre containers e os mecanismos de monitoramento/health check (`/api/health/integrations` e CLI `cardok:check-services`) já ficam testados e operacionais desde o primeiro dia.
@@ -721,15 +827,31 @@ Todas as respostas HTTP do monólito incluem cabeçalhos de proteção:
 
 ---
 
-## 14. Comandos Úteis
+## 15. Comandos Úteis
 
-- **Validar sintaxe do Docker Compose**:
+- **Acompanhar logs estruturados em tempo real**:
   ```bash
-  docker compose config
+  docker compose logs -f monolith
   ```
-- **Verificar status e saúde dos containers**:
+- **Filtrar apenas eventos de fallback**:
   ```bash
-  docker compose ps
+  docker compose logs monolith | grep '"event":"provider.fallback"' | jq .
+  ```
+- **Filtrar apenas tentativas de retry**:
+  ```bash
+  docker compose logs monolith | grep '"event":"provider.retry"' | jq .
+  ```
+- **Filtrar requisições finalizadas com latência**:
+  ```bash
+  docker compose logs monolith | grep '"event":"vehicle_debt.completed"' | jq .
+  ```
+- **Consultar métricas em tempo real**:
+  ```bash
+  curl -s http://localhost:8000/api/metrics | jq .
+  ```
+- **Executar diagnóstico de dependências via CLI**:
+  ```bash
+  docker compose exec monolith php artisan cardok:check-services
   ```
 - **Executar todos os testes automatizados**:
   ```bash

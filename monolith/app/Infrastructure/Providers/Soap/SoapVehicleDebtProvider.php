@@ -33,9 +33,14 @@ class SoapVehicleDebtProvider implements VehicleDebtProvider
             . "    <plate>{$escapedPlate}</plate>\n"
             . "</request>";
 
+        $headers = ['Content-Type' => 'application/xml'];
+        if (app()->bound('request_id')) {
+            $headers['X-Request-ID'] = (string) app('request_id');
+        }
+
         try {
             $response = Http::timeout($this->timeout)
-                ->withHeaders(['Content-Type' => 'application/xml'])
+                ->withHeaders($headers)
                 ->withBody($xmlRequest, 'application/xml')
                 ->post($url);
         } catch (ConnectionException $e) {
@@ -103,6 +108,7 @@ class SoapVehicleDebtProvider implements VehicleDebtProvider
         return new ProviderDebtResponse(
             plate: $normalizedPlate,
             debts: $canonicalDebts,
+            provider: 'soap',
         );
     }
 }

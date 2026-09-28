@@ -85,6 +85,19 @@ class VehicleDebtRequest extends FormRequest
     {
         $errors = $validator->errors();
         $message = $errors->first('placa') ?: $errors->first('provider') ?: 'Parametros invalidos.';
+        $rawPlate = (string) $this->input('placa', '');
+
+        \App\Infrastructure\Observability\SimpleMetricsRegistry::increment('vehicle_debt_error_total', 1, [
+            'error_type' => 'validation_error',
+        ]);
+
+        \Illuminate\Support\Facades\Log::warning('vehicle_debt.failed', [
+            'event' => 'vehicle_debt.failed',
+            'plate' => \App\Application\Support\PlateMasker::mask($rawPlate),
+            'error_type' => 'validation_error',
+            'status_code' => 400,
+            'reason' => $message,
+        ]);
 
         throw new HttpResponseException(
             response()->json([

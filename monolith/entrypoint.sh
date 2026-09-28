@@ -23,4 +23,9 @@ if ! grep -q "^APP_KEY=base64:" /var/www/html/.env 2>/dev/null; then
     php artisan key:generate --force
 fi
 
+# Ensure storage log file exists and stream to container stdout for docker compose logs
+mkdir -p /var/www/html/storage/logs
+touch /var/www/html/storage/logs/laravel.log
+tail -n 0 -F /var/www/html/storage/logs/laravel.log &
+
 exec "$@"

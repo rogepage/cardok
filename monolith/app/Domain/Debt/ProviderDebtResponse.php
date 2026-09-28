@@ -10,5 +10,6 @@ readonly class ProviderDebtResponse
     public function __construct(
         public string $plate,
         public array $debts,
+        public ?string $provider = null,
     ) {}
 }

@@ -34,6 +34,7 @@ class GetVehicleDebtsUseCase
         return new VehicleDebtConsultationResult(
             calculatedDebts: $calculatedResult,
             payments: $paymentSimulation,
+            provider: $providerResponse->provider,
         );
     }
 }

@@ -3,8 +3,6 @@
 namespace App\Application\VehicleDebt;
 
 use App\Domain\Debt\Contracts\VehicleDebtProvider;
-use App\Infrastructure\Providers\Rest\RestVehicleDebtProvider;
-use App\Infrastructure\Providers\Soap\SoapVehicleDebtProvider;
 use InvalidArgumentException;
 
 class ProviderResolver
@@ -12,16 +10,35 @@ class ProviderResolver
     /**
      * @var array<string, VehicleDebtProvider>
      */
-    private array $providers;
+    private array $providers = [];
 
+    /**
+     * @param iterable<string, VehicleDebtProvider>|VehicleDebtProvider $providersOrRest
+     * @param VehicleDebtProvider|null $soapProvider
+     */
     public function __construct(
-        RestVehicleDebtProvider $restProvider,
-        SoapVehicleDebtProvider $soapProvider,
+        iterable|VehicleDebtProvider $providersOrRest = [],
+        ?VehicleDebtProvider $soapProvider = null,
     ) {
-        $this->providers = [
-            'rest' => $restProvider,
-            'soap' => $soapProvider,
-        ];
+        if ($providersOrRest instanceof VehicleDebtProvider) {
+            $this->register('rest', $providersOrRest);
+            if ($soapProvider !== null) {
+                $this->register('soap', $soapProvider);
+            }
+        } elseif (is_iterable($providersOrRest)) {
+            foreach ($providersOrRest as $key => $provider) {
+                if ($provider instanceof VehicleDebtProvider) {
+                    $this->register((string) $key, $provider);
+                }
+            }
+        }
+    }
+
+    public function register(string $providerKey, VehicleDebtProvider $provider): self
+    {
+        $this->providers[strtolower(trim($providerKey))] = $provider;
+
+        return $this;
     }
 
     public function resolve(string $providerKey): VehicleDebtProvider
@@ -54,6 +71,6 @@ class ProviderResolver
             }
         }
 
-        return ! empty($order) ? $order : ['rest', 'soap'];
+        return ! empty($order) ? $order : array_keys($this->providers);
     }
 }

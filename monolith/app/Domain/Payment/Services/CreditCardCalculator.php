@@ -42,6 +42,17 @@ class CreditCardCalculator implements PaymentMethodCalculatorInterface
 
     /**
      * Calculates the single installment value for a given quantity using the Price amortization system.
+     *
+     * Precisão e Controle Financeiro:
+     * 1. Onde o float é utilizado: Exclusivamente no cálculo analítico da taxa composta ($compounded = pow(1 + i, n))
+     *    e na determinação do coeficiente adimensional do Sistema Francês de Amortização (Tabela Price).
+     * 2. Por que: A fórmula PMT requer exponenciação de taxa composta fracionária ((1 + 0.025)^n).
+     * 3. Como a precisão é controlada: O montante monetário NUNCA é manipulado como float solto. Opera-se
+     *    estritamente sobre centavos inteiros ($baseAmount->getAmountInCents()). A multiplicação de centavos
+     *    inteiros pelo coeficiente em ponto flutuante de dupla precisão (IEEE 754 de 64 bits, ~15-17 dígitos)
+     *    elimina desvios de representação decimal intermediária.
+     * 4. Ponto de arredondamento HALF_UP: Ocorre uma única vez no fechamento da parcela, convertendo
+     *    o resultado diretamente para centavos inteiros via round(..., 0, PHP_ROUND_HALF_UP).
      */
     public function calculateInstallment(Money $baseAmount, int $quantity): Money
     {
@@ -53,16 +64,16 @@ class CreditCardCalculator implements PaymentMethodCalculatorInterface
             throw new InvalidArgumentException("Installment quantity {$quantity} is not supported.");
         }
 
-        $base = (float) $baseAmount->toDecimal();
+        $cents = $baseAmount->getAmountInCents();
         $i = self::MONTHLY_RATE;
         $compounded = pow(1.0 + $i, $quantity);
 
-        // PMT = base * (i * (1+i)^n) / ((1+i)^n - 1)
-        $pmt = $base * ($i * $compounded) / ($compounded - 1.0);
+        // Fator Price adimensional: k_n = (i * (1+i)^n) / ((1+i)^n - 1)
+        $factor = ($i * $compounded) / ($compounded - 1.0);
 
-        // Round final installment amount to 2 decimal places using HALF_UP
-        $cents = (int) round($pmt * 100, 0, PHP_ROUND_HALF_UP);
+        // Aplica o fator sobre os centavos inteiros e arredonda uma única vez com HALF_UP para centavos inteiros
+        $installmentCents = (int) round($cents * $factor, 0, PHP_ROUND_HALF_UP);
 
-        return Money::fromCents($cents);
+        return Money::fromCents($installmentCents);
     }
 }

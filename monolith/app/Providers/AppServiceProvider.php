@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\Application\VehicleDebt\ProviderExecutor;
+use App\Application\VehicleDebt\ProviderResolver;
+use App\Application\VehicleDebt\VehicleDebtService;
 use App\Infrastructure\Providers\Rest\RestVehicleDebtProvider;
 use App\Infrastructure\Providers\Soap\SoapVehicleDebtProvider;
 use Illuminate\Support\ServiceProvider;
@@ -34,7 +37,12 @@ class AppServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->singleton(ProviderResolver::class);
+        $this->app->singleton(ProviderResolver::class, function ($app) {
+            return new ProviderResolver([
+                'rest' => $app->make(RestVehicleDebtProvider::class),
+                'soap' => $app->make(SoapVehicleDebtProvider::class),
+            ]);
+        });
         $this->app->singleton(VehicleDebtService::class);
 
         $this->app->singleton(\App\Domain\Debt\Clock\ClockInterface::class, function () {

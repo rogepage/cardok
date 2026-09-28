@@ -498,8 +498,57 @@ class VehicleDebtIntegrationTest extends TestCase
         ]);
 
         $response->assertStatus(400)
+            ->assertExactJson([
+                'error' => 'invalid_plate',
+            ]);
+    }
+
+    public function test_endpoint_returns_exact_invalid_plate_for_various_invalid_formats(): void
+    {
+        $invalidPlates = [
+            'ABC 1234', // space in middle
+            'ABC123',   // too short
+            '1234567',  // numbers only
+            'ABCD123',  // 4 letters first
+            'ABC12345', // too long
+        ];
+
+        foreach ($invalidPlates as $invalidPlate) {
+            $response = $this->postJson('/api/v1/vehicles/debts', [
+                'placa' => $invalidPlate,
+            ]);
+
+            $response->assertStatus(400)
+                ->assertExactJson([
+                    'error' => 'invalid_plate',
+                ]);
+        }
+    }
+
+    public function test_endpoint_rejects_unknown_fields_in_payload(): void
+    {
+        $response = $this->postJson('/api/v1/vehicles/debts', [
+            'placa' => 'ABC1234',
+            'foo' => 'bar',
+        ]);
+
+        $response->assertStatus(400)
             ->assertJson([
-                'error' => 'A placa do veiculo informada e invalida.',
+                'error' => 'unknown_field',
+                'unrecognized_fields' => ['foo'],
+            ]);
+    }
+
+    public function test_endpoint_rejects_payload_with_only_unknown_fields(): void
+    {
+        $response = $this->postJson('/api/v1/vehicles/debts', [
+            'foo' => 'bar',
+        ]);
+
+        $response->assertStatus(400)
+            ->assertJson([
+                'error' => 'unknown_field',
+                'unrecognized_fields' => ['foo'],
             ]);
     }
 

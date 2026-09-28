@@ -54,4 +54,24 @@ class ProviderResolverTest extends TestCase
         config(['services.providers.order' => 'soap,rest']);
         $this->assertSame(['soap', 'rest'], $this->resolver->getConfiguredOrder());
     }
+
+    public function test_allows_registering_new_provider_without_modifying_resolver(): void
+    {
+        $customProvider = $this->createMock(\App\Domain\Debt\Contracts\VehicleDebtProvider::class);
+
+        $this->resolver->register('custom', $customProvider);
+
+        $this->assertSame($customProvider, $this->resolver->resolve('custom'));
+        $this->assertSame($customProvider, $this->resolver->resolve('CUSTOM'));
+    }
+
+    public function test_configured_order_supports_soap_first(): void
+    {
+        config(['services.providers.order' => ['soap', 'rest']]);
+
+        $order = $this->resolver->getConfiguredOrder();
+
+        $this->assertSame('soap', $order[0]);
+        $this->assertSame('rest', $order[1]);
+    }
 }

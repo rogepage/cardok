@@ -23,4 +23,10 @@ if ! grep -q "^APP_KEY=base64:" /var/www/html/.env 2>/dev/null; then
     php artisan key:generate --force
 fi
 
+# Ensure SQLite database exists if DB_CONNECTION is sqlite
+if [ ! -f /var/www/html/database/database.sqlite ]; then
+    mkdir -p /var/www/html/database
+    touch /var/www/html/database/database.sqlite
+fi
+
 exec "$@"

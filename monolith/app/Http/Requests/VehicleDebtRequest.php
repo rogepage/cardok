@@ -79,13 +79,79 @@ class VehicleDebtRequest extends FormRequest
     }
 
     /**
+     * Configure the validator instance to check for unknown/unrecognized fields.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            $allowedKeys = ['placa', 'provider'];
+            $unknownKeys = array_diff(array_keys($this->all()), $allowedKeys);
+
+            if (! empty($unknownKeys)) {
+                $validator->errors()->add('unknown_fields', implode(', ', $unknownKeys));
+            }
+        });
+    }
+
+    /**
      * Handle a failed validation attempt with an HTTP 400 response.
      */
     protected function failedValidation(Validator $validator): void
     {
         $errors = $validator->errors();
-        $message = $errors->first('placa') ?: $errors->first('provider') ?: 'Parametros invalidos.';
         $rawPlate = (string) $this->input('placa', '');
+
+        // 1. Rejeição de campos desconhecidos (P1)
+        if ($errors->has('unknown_fields')) {
+            $unknownFields = explode(', ', (string) $errors->first('unknown_fields'));
+
+            \App\Infrastructure\Observability\SimpleMetricsRegistry::increment('vehicle_debt_error_total', 1, [
+                'error_type' => 'unknown_field',
+            ]);
+
+            \Illuminate\Support\Facades\Log::warning('vehicle_debt.failed', [
+                'event' => 'vehicle_debt.failed',
+                'plate' => \App\Application\Support\PlateMasker::mask($rawPlate),
+                'error_type' => 'unknown_field',
+                'status_code' => 400,
+                'reason' => 'Campos desconhecidos no payload: ' . implode(', ', $unknownFields),
+            ]);
+
+            throw new HttpResponseException(
+                response()->json([
+                    'error' => 'unknown_field',
+                    'unrecognized_fields' => $unknownFields,
+                ], 400)
+            );
+        }
+
+        // 2. Erro de formato de placa inválida (P0: estritamente {"error": "invalid_plate"})
+        if ($errors->has('placa')) {
+            $hasPlacaInput = $this->has('placa') && trim((string) $this->input('placa')) !== '';
+
+            if ($hasPlacaInput) {
+                \App\Infrastructure\Observability\SimpleMetricsRegistry::increment('vehicle_debt_error_total', 1, [
+                    'error_type' => 'invalid_plate',
+                ]);
+
+                \Illuminate\Support\Facades\Log::warning('vehicle_debt.failed', [
+                    'event' => 'vehicle_debt.failed',
+                    'plate' => \App\Application\Support\PlateMasker::mask($rawPlate),
+                    'error_type' => 'invalid_plate',
+                    'status_code' => 400,
+                    'reason' => 'invalid_plate',
+                ]);
+
+                throw new HttpResponseException(
+                    response()->json([
+                        'error' => 'invalid_plate',
+                    ], 400)
+                );
+            }
+        }
+
+        // 3. Demais validações (placa ausente, provider inválido)
+        $message = $errors->first('placa') ?: $errors->first('provider') ?: 'Parametros invalidos.';
 
         \App\Infrastructure\Observability\SimpleMetricsRegistry::increment('vehicle_debt_error_total', 1, [
             'error_type' => 'validation_error',

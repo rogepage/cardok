@@ -1,787 +1,430 @@
-# Cardok - Infraestrutura Inicial
+# Cardok
 
-Ambiente Docker inicial para o projeto **Cardok**, composto pelo monólito principal e pelos serviços externos simulados (REST, SOAP e Payment).
+> Backend para consulta, normalização, cálculo de juros e simulação de pagamento de débitos veiculares.  
+> Projeto desenvolvido como **Home Test técnico** para a **DOK Despachante**.
 
 ---
 
-## 1. Arquitetura
+## Sumário
 
-O sistema é orquestrado via Docker Compose, com todos os serviços integrados em uma rede bridge isolada (`cardok-network`). O monólito se comunica com os providers utilizando os nomes dos serviços Docker como hostname.
+- [1. Visão Geral](#1-visão-geral)
+- [2. Objetivos Implementados](#2-objetivos-implementados)
+- [3. Arquitetura da Solução](#3-arquitetura-da-solução)
+- [4. Estrutura do Projeto](#4-estrutura-do-projeto)
+- [5. Padrões de Projeto e Princípios](#5-padrões-de-projeto-e-princípios)
+- [6. Fluxo de Consulta de Débitos](#6-fluxo-de-consulta-de-débitos)
+- [7. Provedores Externos (REST e SOAP)](#7-provedores-externos-rest-e-soap)
+- [8. Estratégia de Resiliência: Retry e Fallback](#8-estratégia-de-resiliência-retry-e-fallback)
+- [9. Regras de Negócio e Cálculo de Juros](#9-regras-de-negócio-e-cálculo-de-juros)
+- [10. Simulação de Pagamentos (PIX e Cartão)](#10-simulação-de-pagamentos-pix-e-cartão)
+- [11. Documentação da API](#11-documentação-da-api)
+- [12. Tratamento Defensivo de Erros](#12-tratamento-defensivo-de-erros)
+- [13. Observabilidade e Telemetria](#13-observabilidade-e-telemetria)
+- [14. Como Executar com Docker](#14-como-executar-com-docker)
+- [15. Diagnóstico e Health Checks](#15-diagnóstico-e-health-checks)
+- [16. Execução de Testes Automatizados](#16-execução-de-testes-automatizados)
+- [17. Decisões Técnicas e Trade-offs](#17-decisões-técnicas-e-trade-offs)
+- [18. Segurança da Aplicação](#18-segurança-da-aplicação)
+- [19. Melhorias Futuras](#19-melhorias-futuras)
+- [20. Desenvolvimento Assistido por IA e Spec Kit](#20-desenvolvimento-assistido-por-ia-e-spec-kit)
+- [21. Licença e Contexto](#21-licença-e-contexto)
+
+---
+
+## 1. Visão Geral
+
+O **Cardok** é um serviço backend desenhado para orquestrar consultas de débitos veiculares (como IPVA e Multas) distribuídas entre múltiplos provedores externos heterogêneos.
+
+A aplicação resolve três desafios centrais de integração:
+1. **Heterogeneidade de Protocolos**: Realiza chamadas síncronas contra serviços externos em formato **REST (JSON)** e **SOAP (XML)**, normalizando os dados em um modelo canônico de domínio.
+2. **Atualização Financeira Determinística**: Aplica regras legais de encargos diários de mora (IPVA com teto percentual e Multa linear), utilizando tipos de valor monetário imutáveis baseados em centavos inteiros.
+3. **Simulação de Meios de Pagamento**: Oferece opções de quitação total e parcial por categoria de débito, calculando desconto à vista para PIX e parcelamento no cartão de crédito via amortização pela Tabela Price.
+
+> **Nota sobre o ambiente:** Os serviços externos (`provider-rest`, `provider-soap` e `payment-provider`) são simulados em containers Docker isolados para viabilizar testes de integração ponta a ponta sem dependência de serviços legados reais ou cobranças financeiras.
+
+---
+
+## 2. Objetivos Implementados
+
+O projeto atende a todos os requisitos do Home Test:
+
+- [x] **Múltiplos Provedores Externos**: Suporte a provedores REST e SOAP em portas e containers independentes.
+- [x] **Normalização Canônica**: Desacoplamento entre o formato externo dos fornecedores e o modelo interno da aplicação.
+- [x] **Cálculo Preciso de Juros**: Políticas de cálculo separadas para IPVA (0,33%/dia com teto de 20%) e MULTA (1,00%/dia sem teto).
+- [x] **Simulação de Pagamentos**: Cálculo de PIX com 5% de desconto e Cartão em 1x, 6x e 12x a 2,5% a.m. (Tabela Price).
+- [x] **Opções Totais e Parciais**: Geração de opção `TOTAL` e opções individuais agrupadas (`SOMENTE_IPVA`, `SOMENTE_MULTA`).
+- [x] **Resiliência Transparente**: Retries lineares com backoff e fallback automático (*First Success Wins*).
+- [x] **Design Defensivo**: Validação de formato de placa (Tradicional e Mercosul) e rejeição imediata de campos desconhecidos.
+- [x] **Observabilidade Estruturada**: Mascaramento de dados sensíveis nos logs, propagação de `X-Request-ID`, contadores atômicos em `/api/metrics` e telemetria de cache com `X-Cache`.
+- [x] **Testes Automatizados**: 100% de testes verdes (128 testes no ecossistema: 114 no monólito, 7 no REST e 7 no SOAP).
+
+---
+
+## 3. Arquitetura da Solução
+
+O ecossistema é baseado em um **Monólito Modular** desenvolvido em Laravel 10 (PHP 8.2+) acompanhado de três containers satélites de suporte conectados através de uma rede bridge privada (`cardok-network`):
 
 ```text
-                    ┌────────────────────────┐
-                    │   Monolith (Laravel)   │
-                    │    localhost:8000      │
-                    └───────────┬────────────┘
-                                │
-             ┌──────────────────┼──────────────────┐
-             ↓                  ↓                  ↓
- ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
- │ Provider REST        │  │ Provider SOAP        │  │ Payment Provider     │
- │ (Laravel)            │  │ (Laravel)            │  │ (PHP HTTP Mínimo)    │
- │ localhost:8001       │  │ localhost:8002       │  │ (Apenas rede interna)│
- └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
+                                 [ Cliente HTTP / API Caller ]
+                                               │
+                                               ▼
+                              ┌───────────────────────────────────┐
+                              │      Cardok Monolith (8000)       │
+                              │   (Orquestração, Domínio e API)   │
+                              └─────────────────┬─────────────────┘
+                                                │
+                     ┌──────────────────────────┼──────────────────────────┐
+                     │ (cardok-network)         │                          │
+                     ▼                          ▼                          ▼
+         ┌───────────────────────┐  ┌───────────────────────┐  ┌───────────────────────┐
+         │ cardok-provider-rest  │  │ cardok-provider-soap  │  │ cardok-payment-provider│
+         │   (Host: 8001 / REST) │  │   (Host: 8002 / SOAP) │  │ (Apenas rede interna) │
+         └───────────────────────┘  └───────────────────────┘  └───────────────────────┘
 ```
 
----
+### Papel de Cada Container
 
-## 2. Pré-requisitos
-
-- **Docker**: versão 24+ (ou compatível)
-- **Docker Compose**: v2+
-- **Git**
-
-> *Não é necessário ter PHP ou Composer instalados no host. Toda a execução e dependências são gerenciadas dentro dos containers.*
-
----
-
-## 3. Serviços e Portas
-
-| Serviço | Container | Porta Host | Porta Interna | Descrição |
+| Container | Serviço Docker | Porta Host | Porta Interna | Responsabilidade |
 | :--- | :--- | :--- | :--- | :--- |
-| `monolith` | `cardok-monolith` | `8000` | `8000` | Sistema principal (Laravel) |
-| `provider-rest` | `cardok-provider-rest` | `8001` | `8000` | Provedor externo simulado REST (Laravel) |
-| `provider-soap` | `cardok-provider-soap` | `8002` | `8000` | Provedor externo simulado SOAP (Laravel) |
-| `payment-provider` | `cardok-payment-provider` | *N/A* | `8000` | Provedor de pagamento mock (PHP nativo, apenas interno) |
+| `cardok-monolith` | `monolith` | `8000` | `8000` | Núcleo da aplicação: validação, orquestração, regras de negócio e API |
+| `cardok-provider-rest` | `provider-rest` | `8001` | `8000` | Provedor externo simulado que responde em JSON via HTTP REST |
+| `cardok-provider-soap` | `provider-soap` | `8002` | `8000` | Provedor externo simulado que processa e responde envelopes XML |
+| `cardok-payment-provider` | `payment-provider` | *N/A* | `8000` | Mock leve para validação de conectividade interna e saúde de rede |
 
 ---
 
-## 4. Inicialização
+## 4. Estrutura do Projeto
 
-1. Caso queira customizar variáveis de ambiente, copie o arquivo de exemplo:
-   ```bash
-   cp .env.example .env
-   ```
+O código do monólito (`monolith/app`) adota separação estrita em camadas inspirada em Clean Architecture e DDD:
 
-2. Construa as imagens e inicialize todos os containers:
-   ```bash
-   docker compose up --build -d
-   ```
-
-3. Acompanhe os logs (opcional):
-   ```bash
-   docker compose logs -f
-   ```
-
----
-
-## 5. Health Checks e Validação dos Endpoints
-
-Endpoints disponíveis para verificação de integridade de cada serviço:
-
-### Monolith
-```bash
-curl -i http://localhost:8000/api/health
-```
-**Resposta esperada (HTTP 200):**
-```json
-{
-    "status": "ok",
-    "service": "monolith"
-}
-```
-
-### Provider REST
-```bash
-curl -i http://localhost:8001/api/health
-```
-**Resposta esperada (HTTP 200):**
-```json
-{
-    "status": "ok",
-    "service": "provider-rest"
-}
-```
-
-### Provider SOAP
-```bash
-curl -i http://localhost:8002/health
-```
-**Resposta esperada (HTTP 200):**
-```json
-{
-    "status": "ok",
-    "service": "provider-soap"
-}
-```
-
-### Payment Provider (via Monolith / Rede Interna)
-O serviço de pagamento não expõe porta para o host. Ele pode ser validado através de uma chamada executada dentro da rede interna:
-```bash
-docker compose exec monolith curl -i http://payment-provider:8000/health
-```
-**Resposta esperada (HTTP 200):**
-```json
-{
-    "status": "ok",
-    "service": "payment-provider"
-}
+```text
+monolith/app/
+├── Application/                   # Casos de uso e orquestração de aplicação
+│   ├── Support/                   # Utilitários (ex: PlateMasker)
+│   └── VehicleDebt/               # Orquestração do fluxo de débitos
+│       ├── GetVehicleDebtsUseCase.php
+│       ├── ProviderExecutor.php   # Execução com retry linear e backoff
+│       ├── ProviderResolver.php   # Resolução dinâmica e desacoplada de providers
+│       ├── VehicleDebtConsultationResult.php
+│       └── VehicleDebtService.php # Gerenciamento de fallback e agregação
+│
+├── Domain/                        # Núcleo de domínio (regras puras, zero Laravel)
+│   ├── Debt/                      # Entidades e cálculos de débitos
+│   │   ├── Clock/                 # Relógio injetável (FixedClock para testes)
+│   │   ├── Contracts/             # Interfaces dos adaptadores de provedores
+│   │   ├── Exceptions/            # Exceções ricas de domínio
+│   │   ├── Interest/              # Políticas de cálculo de juros
+│   │   │   ├── DebtInterestPolicyInterface.php
+│   │   │   ├── DebtInterestPolicyRegistry.php
+│   │   │   ├── IpvaInterestPolicy.php
+│   │   │   └── MultaInterestPolicy.php
+│   │   ├── Rounding/              # Arredondamento financeiro HALF_UP
+│   │   ├── Debt.php               # Entidade canônica de débito
+│   │   ├── DebtType.php           # Enum tipado (IPVA, MULTA)
+│   │   └── Money.php              # Value Object imutável em centavos inteiros
+│   └── Payment/                   # Simulação de meios de pagamento
+│       ├── Contracts/             # Interfaces de calculadoras de pagamento
+│       ├── DTO/                   # DTOs de opções, PIX e parcelas
+│       └── Services/              # Calculadoras e simulador
+│           ├── CreditCardCalculator.php # Tabela Price com taxa mensal
+│           ├── PaymentSimulator.php     # Agrupamento TOTAL e SOMENTE_<TIPO>
+│           └── PixCalculator.php        # Cálculo com 5% de desconto
+│
+├── Infrastructure/                # Adaptadores de infraestrutura e telemetria
+│   ├── Observability/             # SimpleMetricsRegistry e métricas em memória
+│   └── Providers/                 # Adaptadores de protocolo externo
+│       ├── Rest/                  # RestVehicleDebtProvider (cliente HTTP/JSON)
+│       └── Soap/                  # SoapVehicleDebtProvider (cliente HTTP/XML)
+│
+└── Http/                          # Camada de entrega HTTP
+    ├── Controllers/               # VehicleDebtIntegrationController
+    ├── Middleware/                # RequestIdMiddleware e segurança
+    └── Requests/                  # VehicleDebtRequest (validação de placa e payload)
 ```
 
 ---
 
-## 6. Validação da Comunicação entre Containers
+## 5. Padrões de Projeto e Princípios
 
-Para verificar se o container `monolith` consegue resolver o DNS e acessar todos os três serviços externos via rede interna Docker (`cardok-network`), há duas formas:
-
-### Opção A: Comando Artisan (CLI)
-```bash
-docker compose exec monolith php artisan cardok:check-services
-```
-*Exibe uma tabela formatada no terminal detalhando o status, código HTTP, latência e payload de resposta de cada serviço.*
-
-### Opção B: Endpoint HTTP de Diagnóstico
-```bash
-curl -s http://localhost:8000/api/health/integrations | jq .
-```
-*Retorna o status agregado e os detalhes de conectividade para cada dependência.*
+- **Ports & Adapters (Hexagonal Architecture)**: O domínio define a porta `VehicleDebtProvider`. Os adaptadores `RestVehicleDebtProvider` e `SoapVehicleDebtProvider` traduzem chamadas externas específicas sem vazar detalhes de transporte (JSON ou XML) para o núcleo.
+- **Strategy / Policy**: O cálculo de juros é desacoplado através de `DebtInterestPolicyInterface`. Novas regras tributárias podem ser introduzidas adicionando novas policies ao `DebtInterestPolicyRegistry` sem alterar classes existentes (Open/Closed Principle).
+- **Value Object (`Money`)**: Encapsula valores monetários como inteiros representando centavos (`int`), prevenindo problemas clássicos de imprecisão de ponto flutuante binário.
+- **Dependency Injection**: Todas as dependências (provedores, executores, políticas e calculadoras) são registradas no container de serviços do Laravel (`AppServiceProvider`) através de contratos abstratos.
 
 ---
 
-## 7. External Providers
+## 6. Fluxo de Consulta de Débitos
 
-Serviços externos simulados para consulta de débitos veiculares por placa.
-
-### Modos de Operação e Simulação de Falhas (`PROVIDER_MODE`)
-
-Configurado via variável de ambiente em cada provider ou no arquivo `.env` raiz:
-
-```env
-PROVIDER_MODE=success
+```text
+Requisição POST /api/v1/vehicles/debts
+   │
+   ▼
+[ VehicleDebtRequest ] ─────────── (Invalida placa ou campos desconhecidos: HTTP 400)
+   │ (Placa sanitizada e válida)
+   ▼
+[ GetVehicleDebtsUseCase ]
+   │
+   ▼
+[ VehicleDebtService ]
+   │
+   ├─► Consulta Provedor 1 (ex: REST) via [ ProviderExecutor ]
+   │      ├─ Tentativa 1 (falha de rede/500) ──► Backoff linear (100ms)
+   │      ├─ Tentativa 2 (falha de rede/500) ──► Backoff linear (200ms)
+   │      └─ Tentativa 3 (esgotado) ───────────► Log de falha
+   │
+   ├─► [ Fallback Automático ] ──► Consulta Provedor 2 (ex: SOAP)
+   │      └─ Tentativa 1: Sucesso HTTP 200 ──► Normalização canônica
+   │
+   ▼
+[ DebtCalculationService ] (Aplica juros moratórios com relógio fixado em 2024-05-10)
+   │
+   ▼
+[ PaymentSimulator ] (Calcula PIX à vista e parcelamento Cartão via Price)
+   │
+   ▼
+Resposta HTTP 200 JSON estruturada
 ```
-
-| Modo | HTTP Status | Comportamento |
-| :--- | :--- | :--- |
-| `success` | `200` | Resposta normal com os débitos ou lista vazia |
-| `error` | `500` | Simulação de falha interna do provedor |
-| `timeout` | `200` | Atraso proposital de 5 segundos antes de responder |
-| `invalid_response` | `200` | Resposta com payload/XML corrompido fora do contrato |
 
 ---
 
-### Provider REST
+## 7. Provedores Externos (REST e SOAP)
 
-Endpoint para consulta de débitos via JSON:
-
-```http
-GET /api/v1/vehicles/{plate}/debts
-```
-
-#### Exemplo de Requisição (com débitos):
-```bash
-curl -i http://localhost:8001/api/v1/vehicles/ABC1234/debts
-```
-
-**Resposta (HTTP 200):**
-```json
-{
+### Provedor REST (`provider-rest`)
+- **Transporte**: HTTP GET com JSON.
+- **URL Alvo**: `http://provider-rest:8000/api/v1/vehicles/{plate}/debts`
+- **Porta no Host**: `8001`
+- **Contrato de Resposta**:
+  ```json
+  {
     "vehicle": "ABC1234",
     "debts": [
-        {
-            "type": "IPVA",
-            "amount": 1500.0,
-            "due_date": "2024-01-10"
-        },
-        {
-            "type": "MULTA",
-            "amount": 300.5,
-            "due_date": "2024-02-15"
-        }
+      { "type": "IPVA", "amount": 1500.00, "due_date": "2024-01-10" },
+      { "type": "MULTA", "amount": 300.50, "due_date": "2024-02-15" }
     ]
-}
-```
+  }
+  ```
 
-#### Exemplo de Requisição (sem débitos):
-```bash
-curl -i http://localhost:8001/api/v1/vehicles/DEF5678/debts
-```
+### Provedor SOAP (`provider-soap`)
+- **Transporte**: HTTP POST com XML.
+- **URL Alvo**: `http://provider-soap:8000/soap`
+- **Porta no Host**: `8002`
+- **Payload Enviado**:
+  ```xml
+  <?xml version="1.0" encoding="UTF-8"?>
+  <request>
+      <plate>ABC1234</plate>
+  </request>
+  ```
+- **Contrato de Resposta**:
+  ```xml
+  <?xml version="1.0" encoding="UTF-8"?>
+  <response>
+      <plate>ABC1234</plate>
+      <debts>
+          <debt>
+              <category>IPVA</category>
+              <value>1500.00</value>
+              <expiration>2024-01-10</expiration>
+          </debt>
+      </debts>
+  </response>
+  ```
+- **Tratamento de Veículo Sem Débitos**: O provedor SOAP retorna a tag auto-fechada `<debts/>`. O adaptador do monólito reconhece a tag vazia e normaliza como uma coleção vazia sem disparar erros de parsing.
 
-**Resposta (HTTP 200):**
-```json
-{
-    "vehicle": "DEF5678",
-    "debts": []
-}
-```
-
----
-
-### Provider SOAP
-
-Endpoint funcional para consulta de débitos via XML:
-
-```http
-POST /soap
-```
-
-#### Exemplo de Requisição (com débitos):
-```bash
-curl -i -X POST http://localhost:8002/soap \
-  -H "Content-Type: application/xml" \
-  -d '<request><plate>ABC1234</plate></request>'
-```
-
-**Resposta (HTTP 200):**
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<response>
-    <plate>ABC1234</plate>
-    <debts>
-        <debt>
-            <category>IPVA</category>
-            <value>1500.00</value>
-            <expiration>2024-01-10</expiration>
-        </debt>
-        <debt>
-            <category>MULTA</category>
-            <value>300.50</value>
-            <expiration>2024-02-15</expiration>
-        </debt>
-    </debts>
-</response>
-```
-
-#### Exemplo de Requisição (sem débitos):
-```bash
-curl -i -X POST http://localhost:8002/soap \
-  -H "Content-Type: application/xml" \
-  -d '<request><plate>DEF5678</plate></request>'
-```
-
-**Resposta (HTTP 200):**
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<response>
-    <plate>DEF5678</plate>
-    <debts/>
-</response>
-```
-
-> **Atenção:** Quando não há débitos, o XML utiliza obrigatoriamente a tag auto-fechada `<debts/>` em vez de `<debts></debts>`.
+### Simulação de Falhas nos Provedores (`PROVIDER_MODE`)
+É possível alterar o comportamento de ambos os provedores via variável de ambiente `PROVIDER_MODE` no `.env` ou `docker-compose.yml`:
+- `success`: Responde normalmente com a massa de dados mockada (padrão).
+- `error`: Retorna HTTP 500 simulando instabilidade externa.
+- `timeout`: Aguarda 5 segundos antes de responder, estourando o timeout de 2s do monólito.
+- `invalid_response`: Retorna payload corrompido para testar falha rápida.
 
 ---
 
-### Execução de Testes Automatizados
+## 8. Estratégia de Resiliência: Retry e Fallback
 
-Para rodar os testes dos provedores diretamente via Docker:
-
-```bash
-# Testes do Provider REST
-docker compose exec provider-rest php artisan test
-
-# Testes do Provider SOAP
-docker compose exec provider-soap php artisan test
-```
-
----
-
-## 8. Resiliência: Retry, Fallback e Observabilidade
-
-O monólito Cardok implementa uma estratégia de resiliência baseada em **Retry com Backoff Linear** e **Fallback Sequencial** entre provedores externos de débitos veiculares.
-
-### 8.1. Parâmetros de Configuração
-
-Configurados no arquivo `.env`:
-
-```env
-# Ordem de tentativa dos provedores (separados por vírgula)
-PROVIDER_ORDER=rest,soap
-
-# Timeout máximo em segundos por tentativa individual de cada provider
-PROVIDER_TIMEOUT=2
-
-# Número de retentativas após a tentativa inicial (2 = 1 inicial + 2 retries = 3 tentativas totais)
-PROVIDER_RETRIES=2
-
-# Tempo base de espera entre retentativas em milissegundos
-PROVIDER_BACKOFF_MS=100
-```
-
-### 8.2. Fluxo de Execução e Fallback
-
-```text
-POST /api/v1/vehicles/debts {"placa":"ABC1234"}
-   │
-   ▼
-[Provider 1 - ex: REST]
-   ├── Tentativa 1 (timeout 2s)  ──> Falha (5xx ou Timeout)
-   ├── Backoff (100ms)
-   ├── Tentativa 2 (Retry #1)    ──> Falha
-   ├── Backoff (200ms)
-   └── Tentativa 3 (Retry #2)    ──> Falha
-   │
-   ▼ (Fallback Automático)
-[Provider 2 - ex: SOAP]
-   └── Tentativa 1 (timeout 2s)  ──> Sucesso (200 OK)
-   │
-   ▼
-Resposta Unificada ao Cliente (HTTP 200 com Modelo Canônico)
-```
-
-### 8.3. Política de Retry e Fallback Imediato
-
-* **Falhas de Infraestrutura (Elegíveis para Retry)**:
-  * Timeouts de conexão ou leitura;
-  * Conexão recusada / falhas de DNS;
-  * Erros de servidor HTTP (`500`, `502`, `503`, `504`).
-* **Erros Contratuais (Fallback Imediato sem Retry)**:
-  * Resposta estruturalmente inválida (`invalid_response`), XML malformado ou ausência de campos essenciais. Nesses casos, uma retentativa imediata não consertaria a estrutura da resposta do provedor, logo o sistema faz fallback imediato para o próximo provedor.
-
-### 8.4. Comportamento Quando Todos os Provedores Falham
-
-Se todos os provedores da cadeia (`PROVIDER_ORDER`) esgotarem suas tentativas sem sucesso, o monólito responde com **HTTP 503 Service Unavailable**:
-
-```json
-{
-    "error": "all_providers_unavailable"
-}
-```
-
-> **Segurança**: Detalhes técnicos e stack traces não são expostos na resposta HTTP, sendo registrados exclusivamente nos logs estruturados.
-
-### 8.5. Observabilidade e Logs Estruturados
-
-Eventos de falha, retentativas e fallback são emitidos com contexto estruturado e **mascaramento de dados sensíveis** (LGPD / Segurança):
-
-* **Formato da Placa nos Logs**: os últimos caracteres são mascarados (ex: `ABC****`).
-* **Campos Registrados**: `event`, `provider`, `attempt`, `error`, `duration_ms`, `plate`.
-
-Exemplo de log emitido:
-```json
-{
-    "event": "vehicle_provider_failed",
-    "provider": "rest",
-    "attempt": 2,
-    "error": "REST provider responded with server error status 500",
-    "duration_ms": 2004,
-    "plate": "ABC****",
-    "is_fatal_for_provider": false
-}
-```
-
-### 8.6. Consistência e Decisão Arquitetural
-
-O fallback existe **estritamente para disponibilidade**. Se o primeiro provedor responder com sucesso, os provedores subsequentes não são consultados. Caso o primeiro falhe e o segundo assuma, a resposta retornada pelo segundo provedor é considerada autoritativa para a operação. Não há conciliação ou merge de débitos entre provedores concorrentes nesta fase.
-
-Os provedores podem retornar informações divergentes para a mesma placa. A estratégia atual prioriza disponibilidade e utiliza o primeiro provedor que responder com sucesso, portanto não realiza reconciliação entre provedores durante a requisição. Em uma evolução do sistema, poderíamos realizar consultas paralelas a múltiplos provedores e aplicar uma política de conciliação baseada em tipo, valor, vencimento e identificadores do débito, além de registrar divergências para análise.
+- **Ordem dos Provedores**: Definida por padrão como `rest,soap` (configurável via variável de ambiente `PROVIDER_ORDER`).
+- **Quantidade de Tentativas**: Configurada por `PROVIDER_RETRIES` (padrão `2`). O total de tentativas por provedor é $1 + 2 = 3$.
+- **Backoff Linear**: Intervalo progressivo entre retries calculado por `tentativa * 100ms` (100ms na 1ª repetição, 200ms na 2ª repetição).
+- **Classificação de Falhas**:
+  - *Retriable* (`ProviderUnavailableException`): Falhas de rede, timeouts ou erros HTTP 5xx acionam nova tentativa com backoff.
+  - *Non-retriable* (`InvalidProviderResponseException`): Respostas corrompidas ou XML inválido realizam *fail-fast*, abortando retries no provedor atual e acionando o fallback imediatamente.
+- **Fallback Automático**: Se o primeiro provedor esgotar suas tentativas sem sucesso, o monólito chaveia transparentemente para o próximo provedor configurado.
+- **First Success Wins**: O primeiro provedor a responder com sucesso interrompe o ciclo e entrega os dados.
+- **Exaustão Total**: Se todos os provedores falharem, a API responde HTTP 503 com `{"error": "all_providers_unavailable"}`.
 
 ---
 
-## 9. Domínio e Regras de Juros
+## 9. Regras de Negócio e Cálculo de Juros
 
-As regras de negócio relacionadas a débitos veiculares são estritamente isoladas na camada de **Domínio** (`App\Domain\Debt`), sem acoplamento com HTTP, Controllers, banco de dados ou provedores externos.
+As atualizações de valores seguem estritamente as regras de encargos legais com relógio do sistema fixado em **`2024-05-10`** para garantir determinismo no Home Test:
 
-### 9.1. Data de Referência Fixa e Abstração de Relógio
-
-Para garantir determinismo e reprodutibilidade nos cálculos de atraso, o sistema utiliza uma abstração de relógio (`App\Domain\Debt\Clock\ClockInterface`), instanciada por padrão com:
-
-```text
-2024-05-10T00:00:00Z (UTC)
-```
-
-Todas as comparações de data são normalizadas em UTC e utilizam `CarbonImmutable`.
-
-### 9.2. Dias de Atraso
-
-O cálculo dos dias de atraso considera a diferença entre a data de referência e a data de vencimento:
-
-```text
-dias_atraso = max(0, data_referencia - data_vencimento)
-```
-
-* Se `data_vencimento >= data_referencia` (`dias_atraso == 0`): não há incidência de juros (`juros = 0` e `valor_atualizado = valor_original`).
-
-### 9.3. Políticas de Juros por Tipo de Débito
-
-O cálculo utiliza o padrão Strategy / Policy Registry (`DebtInterestPolicyRegistry`), permitindo extensão para novos tipos sem alterar classes existentes:
-
-| Tipo | Taxa Diária | Teto de Juros | Fórmula de Juros |
+| Tipo de Débito | Taxa de Juros Diária | Teto de Juros | Fórmula de Aplicação |
 | :--- | :--- | :--- | :--- |
-| `IPVA` | `0,33%` (`0.0033`) | `20%` do valor original | `min(valor_original × 0.0033 × dias_atraso, valor_original × 0.20)` |
-| `MULTA` | `1,00%` (`0.01`) | *Sem teto* | `valor_original × 0.01 × dias_atraso` |
+| **IPVA** | `0,33%` ao dia | `20%` do valor original | $J = \min(V_{\text{orig}} \times 0.0033 \times d, V_{\text{orig}} \times 0.20)$ |
+| **MULTA** | `1,00%` ao dia | Sem teto | $J = V_{\text{orig}} \times 0.01 \times d$ |
 
-Após o cálculo dos juros com arredondamento `HALF_UP`:
-```text
-valor_atualizado = valor_original + juros
+- **Débitos Não Vencidos**: Se a data de vencimento for igual ou posterior à data de referência (`dias_atraso <= 0`), os juros calculados são rigorosamente `0.00`.
+- **Tipos Desconhecidos**: Se o provedor retornar um tipo de débito não homologado pelo domínio, a requisição é rejeitada com HTTP 422 (`{"error": "unknown_debt_type", "type": "..."}`).
+- **Arredondamento Financeiro**: Todos os cálculos parciais operam em centavos inteiros. O arredondamento na conversão monetária utiliza o padrão bancário **HALF_UP** (`round(..., 2, PHP_ROUND_HALF_UP)`).
+
+---
+
+## 10. Simulação de Pagamentos (PIX e Cartão)
+
+Para cada cenário de quitação, o monólito gera opções de pagamento detalhadas:
+
+### Opções Geradas
+1. **`TOTAL`**: Quitação consolidada de todos os débitos atualizados do veículo.
+2. **`SOMENTE_<TIPO>`**: Quitação individual por categoria (ex: `SOMENTE_IPVA`, `SOMENTE_MULTA`).
+*(Caso o veículo não possua débitos, a lista de opções de pagamento é entregue vazia: `{"opcoes": []}`)*.
+
+### Modalidades de Pagamento
+
+#### PIX (À Vista)
+- Aplica **5% de desconto** sobre o valor base:
+  $$\text{Total PIX} = V_{\text{base}} \times 0.95$$
+
+#### Cartão de Crédito (Parcelado)
+- Modalidades obrigatórias: **1x**, **6x** e **12x**.
+- **1x (À Vista no Cartão)**: Valor integral sem encargos adicionais ($\text{Parcela} = V_{\text{base}}$).
+- **6x e 12x (Parcelado)**: Juros compostos de **2,5% ao mês** calculados pelo Sistema Francês de Amortização (**Tabela Price**):
+  $$PMT = P \times \frac{i \times (1 + i)^n}{(1 + i)^n - 1}$$
+  *Onde $P$ é o valor base em centavos, $i = 0.025$ e $n$ é o número de parcelas.*
+
+---
+
+## 11. Documentação da API
+
+### Tabela de Endpoints
+
+| Método | Endpoint | Proteção / Cache | Descrição |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/vehicles/debts` | Throttle: 60 req/min | Consulta débitos veiculares, atualiza juros e gera simulação de pagamento |
+| `GET` | `/api/health` | Direto | Health check básico de inicialização do monólito |
+| `GET` | `/api/health/integrations` | Cache: 5s (com bypass) | Diagnóstico completo de conectividade com todos os 3 serviços externos |
+| `GET` | `/api/metrics` | Direto | Métricas operacionais em tempo real (contadores de requests, falhas, fallbacks) |
+
+---
+
+### Exemplo de Requisição
+
+`POST /api/v1/vehicles/debts`
+```bash
+curl -X POST http://localhost:8000/api/v1/vehicles/debts \
+  -H "Content-Type: application/json" \
+  -d '{"placa": "ABC1234"}'
 ```
 
-### 9.4. Política de Arredondamento (HALF_UP) e Precisão Monetária
+*(Opcional: é possível forçar um provedor específico enviando `"provider": "soap"` ou `"provider": "rest"`).*
 
-A política de arredondamento é consistente em todo o domínio e obedece às seguintes regras:
+---
 
-* **Modo**: `HALF_UP` (arredonda frações $\ge 0,5$ centavos para cima, afastando de zero).
-* **Escala**: 2 casas decimais (precisão ao centavo).
-* **Sem Float**: É estritamente proibido o uso de tipos `float` para cálculos monetários no domínio, prevenindo erros de representação binária IEEE-754.
-* **Preservação de Precisão**: Cálculos intermediários preservam a máxima precisão matemática através de aritmética inteira e frações racionais no utilitário de domínio `App\Domain\Debt\Rounding\HalfUpRounder`. Arredonda-se estritamente no ponto final de definição do valor monetário de cada débito.
-
-#### Fluxo de Cálculo de Juros por Tipo
-
-1. **MULTA**:
-   * O juros é calculado com precisão total:
-     $$\text{juros\_calculado} = \text{valor\_original} \times 0.01 \times \text{dias\_atraso}$$
-   * Exemplo: $\text{R\$ } 300,50 \times 0.01 \times 85 = 255,425$.
-   * O arredondamento `HALF_UP` é aplicado sobre o juros resultante: $255,425 \xrightarrow{\text{HALF\_UP}} 255,43$.
-   * $\text{valor\_atualizado} = \text{valor\_original} + \text{juros\_arredondado} = 300,50 + 255,43 = 555,93$.
-
-2. **IPVA**:
-   * O cálculo dos juros e do teto preserva a precisão antes de qualquer arredondamento:
-     $$\text{juros\_calculado} = \text{valor\_original} \times 0.0033 \times \text{dias\_atraso}$$
-     $$\text{juros\_teto} = \text{valor\_original} \times 0.20$$
-     $$\text{juros\_aplicado} = \min(\text{juros\_calculado}, \text{juros\_teto})$$
-   * O arredondamento `HALF_UP` para 2 casas é aplicado sobre o `juros\_aplicado`.
-   * $\text{valor\_atualizado} = \text{valor\_original} + \text{juros\_aplicado}$.
-
-#### Totais Consolidados
-
-Os totais do resumo (`resumo`) são calculados pela soma dos valores monetários já normalizados para 2 casas decimais (centavos inteiros):
-* $\text{total\_original} = \sum \text{valores\_originais}$
-* $\text{total\_atualizado} = \sum \text{valores\_atualizados}$
-
-Não há múltiplos arredondamentos em cascata nem arredondamento sobre a soma de frações não arredondadas.
-
-### 9.5. Tratamento de Tipos de Débito Desconhecidos (HTTP 422)
-
-Os tipos suportados nesta fase são estritamente `IPVA` e `MULTA`:
-* Se o provedor retornar um tipo não suportado (ex: `LICENCIAMENTO`), o domínio lança `UnknownDebtTypeException`.
-* A camada HTTP intercepta essa exceção de domínio e responde com **HTTP 422 Unprocessable Content**:
+### Exemplo Real de Resposta (HTTP 200 OK)
 
 ```json
 {
-    "error": "unknown_debt_type",
-    "type": "LICENCIAMENTO"
-}
-```
-
-> **Atenção**: Nenhum débito desconhecido é descartado silenciosamente ou renomeado para "OUTROS".
-
-### 9.6. Exemplo de Resposta Completa da API
-
-```http
-POST /api/v1/vehicles/debts
-Content-Type: application/json
-
-{"placa": "ABC1234"}
-```
-
-**Resposta (HTTP 200):**
-```json
-{
-    "placa": "ABC1234",
-    "debitos": [
-        {
-            "tipo": "IPVA",
-            "valor_original": "1500.00",
-            "valor_atualizado": "1800.00",
-            "vencimento": "2024-01-10",
-            "dias_atraso": 121
-        },
-        {
-            "tipo": "MULTA",
-            "valor_original": "300.50",
-            "valor_atualizado": "555.93",
-            "vencimento": "2024-02-15",
-            "dias_atraso": 85
-        }
-    ],
-    "resumo": {
-        "total_original": "1800.50",
-        "total_atualizado": "2355.93"
+  "placa": "ABC1234",
+  "debitos": [
+    {
+      "tipo": "IPVA",
+      "valor_original": "1500.00",
+      "valor_atualizado": "1800.00",
+      "vencimento": "2024-01-10",
+      "dias_atraso": 121
     },
-    "pagamentos": {
-        "opcoes": [
-            {
-                "tipo": "TOTAL",
-                "valor_base": "2355.93",
-                "pix": {
-                    "total_com_desconto": "2238.13"
-                },
-                "cartao_credito": {
-                    "parcelas": [
-                        {
-                            "quantidade": 1,
-                            "valor_parcela": "2355.93"
-                        },
-                        {
-                            "quantidade": 6,
-                            "valor_parcela": "427.72"
-                        },
-                        {
-                            "quantidade": 12,
-                            "valor_parcela": "229.67"
-                        }
-                    ]
-                }
-            },
-            {
-                "tipo": "SOMENTE_IPVA",
-                "valor_base": "1800.00",
-                "pix": {
-                    "total_com_desconto": "1710.00"
-                },
-                "cartao_credito": {
-                    "parcelas": [
-                        {
-                            "quantidade": 1,
-                            "valor_parcela": "1800.00"
-                        },
-                        {
-                            "quantidade": 6,
-                            "valor_parcela": "326.79"
-                        },
-                        {
-                            "quantidade": 12,
-                            "valor_parcela": "175.48"
-                        }
-                    ]
-                }
-            },
-            {
-                "tipo": "SOMENTE_MULTA",
-                "valor_base": "555.93",
-                "pix": {
-                    "total_com_desconto": "528.13"
-                },
-                "cartao_credito": {
-                    "parcelas": [
-                        {
-                            "quantidade": 1,
-                            "valor_parcela": "555.93"
-                        },
-                        {
-                            "quantidade": 6,
-                            "valor_parcela": "100.93"
-                        },
-                        {
-                            "quantidade": 12,
-                            "valor_parcela": "54.20"
-                        }
-                    ]
-                }
-            }
-        ]
+    {
+      "tipo": "MULTA",
+      "valor_original": "300.50",
+      "valor_atualizado": "555.93",
+      "vencimento": "2024-02-15",
+      "dias_atraso": 85
     }
+  ],
+  "resumo": {
+    "total_original": "1800.50",
+    "total_atualizado": "2355.93"
+  },
+  "pagamentos": {
+    "opcoes": [
+      {
+        "tipo": "TOTAL",
+        "valor_base": "2355.93",
+        "pix": {
+          "total_com_desconto": "2238.13"
+        },
+        "cartao_credito": {
+          "parcelas": [
+            { "quantidade": 1, "valor_parcela": "2355.93" },
+            { "quantidade": 6, "valor_parcela": "427.72" },
+            { "quantidade": 12, "valor_parcela": "229.67" }
+          ]
+        }
+      },
+      {
+        "tipo": "SOMENTE_IPVA",
+        "valor_base": "1800.00",
+        "pix": {
+          "total_com_desconto": "1710.00"
+        },
+        "cartao_credito": {
+          "parcelas": [
+            { "quantidade": 1, "valor_parcela": "1800.00" },
+            { "quantidade": 6, "valor_parcela": "326.79" },
+            { "quantidade": 12, "valor_parcela": "175.48" }
+          ]
+        }
+      },
+      {
+        "tipo": "SOMENTE_MULTA",
+        "valor_base": "555.93",
+        "pix": {
+          "total_com_desconto": "528.13"
+        },
+        "cartao_credito": {
+          "parcelas": [
+            { "quantidade": 1, "valor_parcela": "555.93" },
+            { "quantidade": 6, "valor_parcela": "100.93" },
+            { "quantidade": 12, "valor_parcela": "54.20" }
+          ]
+        }
+      }
+    ]
+  }
 }
 ```
 
 ---
 
-## 10. Domínio de Pagamentos e Simulação de Opções
+## 12. Tratamento Defensivo de Erros
 
-O domínio de **Pagamentos** (`App\Domain\Payment`) é completamente desacoplado do domínio de débitos (`App\Domain\Debt`), gateways externos e controllers HTTP. O simulador (`PaymentSimulator`) recebe os débitos já calculados (`CalculatedVehicleDebts`) e gera as alternativas de liquidação disponíveis.
+A API possui respostas padronizadas e sem vazamento de stack traces internos:
 
-### 10.1. Valor Base: Atualizado vs. Original
-
-O `valor_base` de qualquer modalidade de pagamento é **sempre o valor atualizado** com juros de atraso (`valor_atualizado`), nunca o valor original de face (`valor_original`).
-* Exemplo: IPVA original de R$ 1.500,00 com R$ 300,00 de juros resulta em `valor_base = 1800.00`.
-
-### 10.2. Agrupamento por Tipo e Ordem Determinística
-
-1. **Opção `TOTAL`**:
-   * Sempre apresentada como primeira opção.
-   * Utiliza o `total_atualizado` consolidado de todos os débitos do veículo.
-2. **Opções Parciais (`SOMENTE_<TIPO>`)**:
-   * Débitos do mesmo tipo são consolidados em uma única opção parcial.
-   * A ordem das opções segue estritamente a ordem de primeira aparição na lista de débitos original.
-   * Se um veículo possuir múltiplos débitos de IPVA (ex: R$ 100, R$ 200, R$ 300), é gerada apenas uma opção `SOMENTE_IPVA` com `valor_base = 600.00`.
-3. **Veículo sem Débitos**:
-   * Quando o veículo não possui débitos pendentes, o simulador retorna `"pagamentos": {"opcoes": []}`, sem inventar opções fictícias.
-
-### 10.3. PIX com Desconto de 5%
-
-* Aplicado sobre o `valor_base` de **todas** as opções (TOTAL e parciais):
-  $$\text{total\_com\_desconto} = \text{valor\_base} \times 0.95$$
-* Arredondamento executado via `HALF_UP` para 2 casas decimais.
-
-### 10.4. Cartão de Crédito e Tabela Price (PMT)
-
-O cartão de crédito oferece exatamente 3 modalidades de parcelamento:
-* **1x (à vista)**: sem juros ($\text{valor\_parcela} = \text{valor\_base}$).
-* **6x e 12x**: amortização pelo sistema Francês/Price com taxa de juros compostos de **2,5% ao mês** ($i = 0.025$).
-  $$\text{PMT} = \frac{\text{base} \times i \times (1+i)^n}{(1+i)^n - 1}$$
-* Preserva-se precisão matemática total nas etapas de potenciação e quociente, aplicando `HALF_UP` para 2 casas exclusivamente no valor final da parcela.
-
-### 10.5. Tabela Resumo do Cenário Oficial (Placa `ABC1234`)
-
-| Opção | Valor Base | PIX (5% desc.) | Cartão 1x | Cartão 6x (2,5% a.m.) | Cartão 12x (2,5% a.m.) |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **TOTAL** | R$ 2.355,93 | R$ 2.238,13 | R$ 2.355,93 | R$ 427,72 | R$ 229,67 |
-| **SOMENTE_IPVA** | R$ 1.800,00 | R$ 1.710,00 | R$ 1.800,00 | R$ 326,79 | R$ 175,48 |
-| **SOMENTE_MULTA** | R$ 555,93 | R$ 528,13 | R$ 555,93 | R$ 100,93 | R$ 54,20 |
-
-### 10.6. Implementado Atualmente vs. Preparado para Evolução
-
-O Cardok separa com clareza conceitual a **Simulação de Pagamento** (*"Quanto o cliente pagaria?"*) da **Liquidação Financeira Real** (*"Efetivar uma transação bancária/adquirente"*):
-
-```text
-[Fluxo Implementado Atualmente — Simulação em Domínio Puro]
-Consulta de Débitos ──> Provedores (REST/SOAP) ──> Normalização Canônica ──> Juros de Atraso ──> PaymentSimulator (PIX & Price)
-```
-
-- **Fora de Escopo do Home Test**: Cobrança com adquirente, checkout, geração de QR Code PIX em bancos, webhook de conciliação ou persistência de cartões.
-- **Independência Operacional**: O container `payment-provider` **não** é chamado durante a consulta de débitos ou simulação. A indisponibilidade total do provedor de pagamento não compromete o cálculo de opções para o usuário.
-
-### 10.7. Blueprint para Evolução Futura (Liquidação Real)
-
-Quando o sistema evoluir para suportar checkout e pagamento real, a integração seguirá o padrão de **Portas e Adaptadores** já adotado para os débitos:
-
-```text
-[Evolução Futura — Liquidação Real com Adquirente/Gateway]
-Payment Application Service
-          │
-          ▼
-<<interface>> PaymentGatewayInterface  (Porta de Domínio)
-          │
-          ▼
-HttpPaymentGatewayAdapter              (Adaptador de Infraestrutura)
-          │
-          ▼
-payment-provider                       (POST /charge)
-```
+| Situação | Status HTTP | Payload de Resposta | Motivo |
+| :--- | :--- | :--- | :--- |
+| **Placa Ausente ou Inválida** | `400 Bad Request` | `{"error": "invalid_plate"}` | Placa não enviada ou em desacordo com o padrão brasileiro |
+| **Campos Desconhecidos** | `400 Bad Request` | `{"error": "unknown_field", "unrecognized_fields": ["campo_estranho"]}` | Proteção contra payloads adulterados ou ataques de poluição de parâmetros |
+| **Tipo de Débito Desconhecido** | `422 Unprocessable` | `{"error": "unknown_debt_type", "type": "SEGURO_DPVAT"}` | Fornecedor externo retornou categoria de débito não catalogada |
+| **Todos os Provedores Indisponíveis**| `503 Unavailable` | `{"error": "all_providers_unavailable"}` | Todos os provedores externos falharam após retries e fallbacks |
 
 ---
 
-## 11. Interface Web (Laravel Livewire)
+## 13. Observabilidade e Telemetria
 
-O Cardok conta com uma camada visual reativa desenvolvida com **Laravel Livewire** e estilizada com **Tailwind CSS**, permitindo consulta e simulação interativa de débitos veiculares.
-
-### 11.1. Acesso à Interface
-
-A interface está disponível na raiz do monólito:
-```text
-http://localhost:8000/
-```
-
-### 11.2. Recursos e Comportamento Visual
-
-- **Consulta Rápida por Placa**:
-  - Aceita placas no formato Mercosul (`ABC1D23`) ou formato tradicional Cinza (`ABC1234`).
-  - Normalização automática (remoção de espaços e conversão para caixa alta).
-  - Feedback visual imediato com desativação do botão de consulta e indicador de progresso (*spinner*) durante a requisição (`wire:loading`).
-- **Tratamento Amigável de Erros**:
-  - Validação de formato com mensagem explicativa em português (`invalid_plate`).
-  - Mensagem contextual caso os provedores externos estejam indisponíveis (`all_providers_unavailable`), sem expor falhas internas ou stack traces.
-- **Estado de Veículo sem Débitos**:
-  - Mensagem explicativa dedicada para veículos em situação regular: *"Nenhum débito encontrado. Seu veículo está sem débitos disponíveis para consulta."*.
-- **Visualização Completa dos Débitos**:
-  - Cards detalhados para cada pendência com tipo (`IPVA` ou `MULTA`), data de vencimento formatada (`DD/MM/AAAA`), dias de atraso, valor original e valor atualizado com encargos.
-- **Resumo Financeiro Consolidado**:
-  - Total original e total atualizado com juros e multas calculados conforme a data de referência oficial.
-- **Simulador de Formas de Pagamento**:
-  - Apresenta as opções disponíveis (`TOTAL`, `SOMENTE_IPVA`, `SOMENTE_MULTA`).
-  - Condição especial via **PIX com 5% de desconto**.
-  - Simulação de parcelamento no **Cartão de Crédito** em 1x (sem juros), 6x e 12x (calculados via Tabela Price a 2,5% a.m.).
-- **Design Totalmente Responsivo**:
-  - Layout limpo, semântico e fluido otimizado para navegação tanto em desktops quanto em smartphones.
-
-### 11.3. Arquitetura e Desacoplamento
-
-A interface Livewire (`App\Livewire\VehicleDebtLookup`) funciona estritamente como um **adaptador de apresentação**:
-- **Zero regras de negócio na camada visual**: não há cálculos financeiros, regras de retry, fallbacks ou chamadas diretas a clientes HTTP dentro dos componentes Livewire.
-- **Ponto de entrada unificado**: tanto o Livewire quanto o controller da API REST (`VehicleDebtIntegrationController`) invocam o mesmo método da camada de aplicação (`VehicleDebtService::consultDebts()`), garantindo paridade total entre a experiência web e a API programática.
-
----
-
-## 12. Segurança e Hardening
-
-O Cardok adota práticas defensivas alinhadas aos padrões OWASP e boas práticas de APIs seguras:
-
-### 12.1. Proteção contra Injeção e Manipulação de Entrada
-- **Prevenção de Injeção de XML (SOAP)**: A placa do veículo é escapada explicitamente via `htmlspecialchars($plate, ENT_XML1, 'UTF-8')` antes da montagem da requisição XML para o provedor SOAP. O parser XML utiliza `LIBXML_NONET` para blindagem contra XXE (XML External Entity).
-- **Prevenção de Path Traversal e Injeção de URL (REST)**: O parâmetro da placa é normalizado e codificado via `rawurlencode()` antes de compor os endpoints externos.
-- **Validação Estrita via FormRequest (`VehicleDebtRequest`)**:
-  - Validação estrita de padrão veicular (Mercosul e Cinza) via Regex (`/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$|^[A-Z]{3}[0-9]{4}$/`).
-  - **Allowlist de Provedores**: O parâmetro opcional `provider` é restrito exclusivamente aos valores permitidos (`in:rest,soap`), rejeitando entradas inválidas com HTTP 400 em vez de disparar exceções internas não tratadas (HTTP 500).
-
-### 12.2. Proteção contra Negação de Serviço (Rate Limiting)
-- Middleware de **Rate Limiting** (`throttle:60,1`) aplicado à rota `POST /api/v1/vehicles/debts`. Evita exaustão do pool de processos PHP-FPM / Slow DoS em cenários onde requisições concorrentes exploram retries e timeouts de provedores instáveis.
-
-### 12.3. Cabeçalhos de Segurança HTTP (`SecurityHeadersMiddleware`)
-Todas as respostas HTTP do monólito incluem cabeçalhos de proteção:
-- `X-Content-Type-Options: nosniff`: previne MIME-sniffing pelo navegador.
-- `X-Frame-Options: SAMEORIGIN`: mitiga ataques de Clickjacking.
-- `X-XSS-Protection: 1; mode=block`: ativa o filtro de XSS em navegadores legados.
-- `Referrer-Policy: strict-origin-when-cross-origin`: protege o vazamento de referrers sensíveis.
-
-### 12.4. Privacidade e LGPD
-- **Mascaramento em Logs**: Todas as ocorrências da placa em logs estruturados de retry, fallback e rastreamento são mascaradas (ex: `ABC****`), garantindo proteção a dados identificadores do veículo.
-
----
-
-## 13. Observabilidade
-
-O Cardok adota uma arquitetura de **observabilidade pragmática e orientada a eventos**, projetada especificamente para diagnósticos rápidos em ambientes conteinerizados sem sobrecarregar a infraestrutura com daemons adicionais.
-
-### 13.1. Correlation ID / Request ID
-Toda requisição que trafega pelo Cardok recebe um identificador único de rastreabilidade:
-- **Header HTTP**: `X-Request-ID` (ex: `7f4d9c2a-e18d-4a11-893f-c6b7381014e2`).
-- **Comportamento**:
-  - Se o cliente enviar um `X-Request-ID` válido (alfanumérico, hífen/underscore até 64 caracteres), o valor é preservado.
-  - Caso contrário (ou se ausente), um UUID v4 seguro é gerado pelo `RequestIdMiddleware`.
-- **Propagação End-to-End**:
-  - Retornado no cabeçalho da resposta HTTP (`X-Request-ID`).
-  - Injetado no contexto global de logging (`Log::withContext(['request_id' => ...])`), assegurando que todas as linhas de log pertençam à mesma correlação.
-  - Propagado automaticamente para as chamadas externas aos provedores (`provider-rest` e `provider-soap`).
-
-```text
-Cliente (HTTP)
-   │
-   │ X-Request-ID: abc123
-   ▼
-Cardok Monolith
-   │
-   ├── [Log] request.received (request_id: abc123)
-   │
-   ├── REST provider (X-Request-ID: abc123)
-   │     └── [Log] provider.retry (attempt: 2, request_id: abc123)
-   │
-   ├── [Log] provider.fallback (from: rest, to: soap, request_id: abc123)
-   │
-   └── SOAP provider (X-Request-ID: abc123)
-         └── [Log] vehicle_debt.completed (request_id: abc123)
-```
-
-### 13.2. Logs Estruturados em JSON
-Os logs do sistema são formatados via `StructuredJsonFormatter` em JSON de linha única (NDJSON), prontos para ingestão por ferramentas de observabilidade (ex: Datadog, ELK, CloudWatch, Loki):
+### Logs Estruturados
+O sistema emite logs formatados em JSON direcionados para `stdout` / `stderr`. O identificador de correlação `request_id` é propagado em todas as etapas:
 
 ```json
-{
-  "timestamp": "2026-09-28T13:36:03.114Z",
-  "level": "INFO",
-  "message": "provider.request",
-  "event": "provider.request",
-  "request_id": "scenario-2-fallback-verified",
-  "provider": "rest",
-  "operation": "get_debts",
-  "plate": "ABC****",
-  "attempt": 1
-}
+{"request_id":"c8a29a1b-3f41-4c12-9214-e0c1f5412891","event":"provider.request","provider":"rest","operation":"get_debts","plate":"ABC****","attempt":1}
+{"request_id":"c8a29a1b-3f41-4c12-9214-e0c1f5412891","event":"provider.response","provider":"rest","status":"success","duration_ms":3,"debts_count":2}
+{"request_id":"c8a29a1b-3f41-4c12-9214-e0c1f5412891","event":"vehicle_debt.completed","plate":"ABC****","provider":"rest","debts_count":2,"duration_ms":4}
 ```
 
-### 13.3. Conformidade com LGPD (Mascaramento Centralizado)
-Para conformidade com a LGPD e evitar vazamento de dados de identificação veicular em discos e visualizadores de log, a placa **nunca** é gravada integralmente:
-- A classe centralizada `PlateMasker` converte placas tradicionais e Mercosul para formato ofuscado (ex: `ABC1234` ou `BRA2E19` tornam-se `ABC****` e `BRA****`).
-- O mascaramento é aplicado uniformemente nos logs de requisição, retries, fallbacks, respostas e erros de validação.
+### Mascaramento de Dados Sensíveis
+Em estrito cumprimento das diretrizes de privacidade, placas veiculares são ofuscadas em todos os logs através da classe `PlateMasker`:
+`ABC1234` $\to$ `ABC****` | `BRA2E19` $\to$ `BRA****`.
 
-### 13.4. Ciclo de Eventos Padronizados
-
-| Evento | Nível | Descrição | Atributos Principais |
-| :--- | :--- | :--- | :--- |
-| `request.received` | `INFO` | Requisição HTTP recebida na API | `request_id`, `method`, `path` |
-| `provider.request` | `INFO` | Início de consulta a um provedor externo | `request_id`, `provider`, `operation`, `plate`, `attempt` |
-| `provider.response`| `INFO` | Resposta bem-sucedida do provedor | `request_id`, `provider`, `status`, `duration_ms`, `debts_count` |
-| `provider.retry`   | `WARNING` | Tentativa transitória de reenvio | `request_id`, `provider`, `attempt`, `max_attempts`, `reason`, `backoff_ms` |
-| `provider.fallback`| `WARNING` | Alternância para o próximo provedor | `request_id`, `from`, `to`, `reason`, `plate` |
-| `vehicle_debt.completed` | `INFO` | Consulta e cálculo concluídos com êxito | `request_id`, `plate`, `provider`, `debts_count`, `duration_ms` |
-| `vehicle_debt.failed` | `ERROR` / `WARN` | Falha definitiva ou erro de validação | `request_id`, `plate`, `error_type`, `status_code`, `reason`, `duration_ms` |
-
-### 13.5. Métricas Operacionais Leves (`GET /api/metrics`)
-Sem demandar containers adicionais como Prometheus ou exporters pesados, o Cardok expõe métricas em tempo real via endpoint HTTP e persistência resiliente em cache:
-
-```bash
-curl -s http://localhost:8000/api/metrics | jq .
-```
-
-Exemplo de resposta:
+### Métricas Operacionais (`GET /api/metrics`)
+O endpoint expõe contadores atômicos mantidos em memória:
 ```json
 {
   "status": "ok",
@@ -789,84 +432,186 @@ Exemplo de resposta:
     "vehicle_debt_requests_total": 42,
     "vehicle_debt_success_total": 38,
     "vehicle_debt_error_total": 4,
-    "provider_requests_total": 55,
-    "provider_failures_total": 17,
-    "provider_retries_total": 12,
-    "provider_fallbacks_total": 5
+    "provider_requests_total": 50,
+    "provider_failures_total": 8,
+    "provider_retries_total": 5,
+    "provider_fallbacks_total": 3
   }
 }
 ```
 
-### 13.6. Health Checks: Aplicação vs. Dependências
-Diferenciamos categoricamente a saúde operacional do monólito da disponibilidade transitória de integrações de terceiros:
-1. `GET /api/health`:
-   - Verifica exclusivamente a integridade interna da aplicação Cardok (processo ativo, framework inicializado).
-   - Usado pelo health check nativo do Docker Compose.
-2. `GET /api/health/integrations`:
-   - Testa a conectividade síncrona com `provider-rest`, `provider-soap` e `payment-provider`.
-   - Se um provedor externo cair, a resposta indica status `degraded` e HTTP 503, demonstrando explicitamente que o monólito continua ativo mesmo quando integrações estão instáveis.
-3. `php artisan cardok:check-services`:
-   - Comando CLI para diagnóstico rápido de conectividade inter-container via terminal.
+### Telemetria de Cache (`X-Cache`)
+O endpoint `/api/health/integrations` inclui o cabeçalho HTTP:
+- `X-Cache: HIT`: Resposta servida a partir da memória/cache transitório em `< 15ms`.
+- `X-Cache: MISS`: Resposta originada de consulta ativa aos 3 provedores externos.
 
 ---
 
-## 14. Trade-offs
+## 14. Como Executar com Docker
 
-### 14.1. Estratégia de Observabilidade (Home Test Staff Engineer)
-> Para este Home Test optamos por observabilidade baseada em logs estruturados e correlation ID, sem introduzir uma stack completa como Prometheus, Grafana ou OpenTelemetry. Isso mantém a infraestrutura simples e suficiente para demonstrar diagnóstico de falhas, retry, fallback e latência. Uma evolução futura poderia exportar esses mesmos eventos para uma plataforma centralizada de observabilidade.
+### Pré-requisitos
+- **Docker**: versão 24+ (ou compatível)
+- **Docker Compose**: v2+
 
-### 14.2. Simulação no Domínio vs. Chamada a Provedor Externo
-> Optamos por manter a simulação de pagamentos dentro do domínio/aplicação porque o requisito do teste é calcular as opções de pagamento, e não efetivar uma transação. O payment-provider permanece provisionado como infraestrutura preparada para uma futura integração de liquidação. Isso evita introduzir uma dependência externa desnecessária no fluxo atual, mantendo um ponto claro de extensão para pagamentos reais.
+### 1. Inicializar o Ambiente
+```bash
+docker compose up --build -d
+```
 
-### 14.3. Manutenção do Container `payment-provider` sem Participação na Regra Atual
-- **Trade-off Negativo (Custo)**: Mantém um serviço ativo no Docker Compose consumindo uma porta interna e executando um processo PHP nativo, sem processar regras de negócio na jornada de consulta de débitos.
-- **Trade-off Positivo (Benefício Arquitetural)**: 
-  1. **Prontidão de Infraestrutura**: A topologia de rede (`cardok-network`), a resolução DNS interna entre containers e os mecanismos de monitoramento/health check (`/api/health/integrations` e CLI `cardok:check-services`) já ficam testados e operacionais desde o primeiro dia.
-  2. **Zero Acoplamento e Resiliência**: O fluxo principal do sistema permanece desacoplado de dependências desnecessárias. Mesmo que o serviço de pagamento fique fora do ar ou sofra instabilidade, a consulta de débitos e a simulação matemática de pagamentos continuam funcionando normalmente.
-  3. **Ponto Claro de Extensão**: O contrato mock `POST /charge` demonstra a interface para a evolução futura, evitando retrabalho de infraestrutura quando o checkout for implementado.
+### 2. Verificar os Containers em Execução
+```bash
+docker compose ps
+```
+
+Os 4 containers devem apresentar status `Up (healthy)`:
+- `cardok-monolith` (porta `8000`)
+- `cardok-provider-rest` (porta `8001`)
+- `cardok-provider-soap` (porta `8002`)
+- `cardok-payment-provider` (rede interna)
 
 ---
 
-## 15. Comandos Úteis
+## 15. Diagnóstico e Health Checks
 
-- **Acompanhar logs estruturados em tempo real**:
-  ```bash
-  docker compose logs -f monolith
-  ```
-- **Filtrar apenas eventos de fallback**:
-  ```bash
-  docker compose logs monolith | grep '"event":"provider.fallback"' | jq .
-  ```
-- **Filtrar apenas tentativas de retry**:
-  ```bash
-  docker compose logs monolith | grep '"event":"provider.retry"' | jq .
-  ```
-- **Filtrar requisições finalizadas com latência**:
-  ```bash
-  docker compose logs monolith | grep '"event":"vehicle_debt.completed"' | jq .
-  ```
-- **Consultar métricas em tempo real**:
-  ```bash
-  curl -s http://localhost:8000/api/metrics | jq .
-  ```
-- **Executar diagnóstico de dependências via CLI**:
-  ```bash
-  docker compose exec monolith php artisan cardok:check-services
-  ```
-- **Executar todos os testes automatizados**:
-  ```bash
-  docker compose exec monolith php artisan test
-  docker compose exec provider-rest php artisan test
-  docker compose exec provider-soap php artisan test
-  ```
-- **Parar o ambiente**:
-  ```bash
-  docker compose down
-  ```
-- **Parar e remover volumes**:
-  ```bash
-  docker compose down -v
-  ```
+### Diagnóstico via CLI (Comando Artisan)
+Para verificar a resolução de DNS interno e a conectividade do monólito com os outros serviços:
+```bash
+docker compose exec monolith php artisan cardok:check-services
+```
+*Gera uma tabela formatada no terminal indicando URL, status, código HTTP e latência de cada serviço parceiro.*
 
+### Diagnóstico via HTTP com Cache Transitório
+O endpoint `GET /api/health/integrations` possui **cache de 5 segundos** para evitar exaustão de conexões durante probes frequentes de orquestradores (Kubernetes/ECS):
+```bash
+# 1ª consulta (Miss):
+curl -i http://localhost:8000/api/health/integrations | grep -i "x-cache"
+# => X-Cache: MISS
 
+# 2ª consulta imediata (< 5s, Cache Hit):
+curl -i http://localhost:8000/api/health/integrations | grep -i "x-cache"
+# => X-Cache: HIT (< 15ms de latência)
 
+# Bypass sob demanda (RFC 7234):
+curl -i -H "Cache-Control: no-cache" http://localhost:8000/api/health/integrations | grep -i "x-cache"
+# => X-Cache: MISS
+```
+
+---
+
+## 16. Execução de Testes Automatizados
+
+Para rodar toda a suíte de testes nos containers:
+
+### 1. Testes do Monólito Principal (114 testes)
+```bash
+docker compose exec monolith php artisan test
+```
+
+### 2. Testes do Provedor REST (7 testes)
+```bash
+docker compose exec provider-rest php artisan test
+```
+
+### 3. Testes do Provedor SOAP (7 testes)
+```bash
+docker compose exec provider-soap php artisan test
+```
+
+### Resumo da Cobertura de Testes
+
+| Componente | Testes | Asserções | Status | Cobertura Principal |
+| :--- | :--- | :--- | :--- | :--- |
+| **Monólito** | `114` | `461` | ✅ 100% Pass | Domínio, Money, Políticas de IPVA/Multa, Price, PIX, Providers, Retry/Fallback, Observabilidade e Cache |
+| **Provider REST** | `7` | `13` | ✅ 100% Pass | Contrato JSON, modos de erro, timeout e health check |
+| **Provider SOAP** | `7` | `27` | ✅ 100% Pass | Envelopes XML, tag `<debts/>`, falhas simuladas e health check |
+| **Total do Ecossistema** | **`128`** | **`501`** | **✅ 100% Pass** | **Zero falhas registradas** |
+
+---
+
+## 17. Decisões Técnicas e Trade-offs
+
+### 1. Monólito Modular vs Microserviços
+- **Decisão**: O núcleo do Cardok foi construído como um monólito modular com separação de camadas.
+- **Motivação**: Evita complexidade operacional desnecessária (RPCs entre serviços internos, transações distribuídas) mantendo alta coesão e permitindo futura extração de serviços caso o volume de requisições justifique.
+
+### 2. Provedores Externos em Containers Separados
+- **Decisão**: Os mocks de REST e SOAP rodam em containers e portas independentes.
+- **Motivação**: Simula fielmente os desafios de rede do mundo real (latência TCP, DNS inter-container, timeouts de socket e indisponibilidade de servidores legados).
+
+### 3. Ausência de Banco de Dados Relacional
+- **Decisão**: O projeto não utiliza banco de dados para a consulta e simulação de débitos.
+- **Motivação**: O escopo do Home Test é centrado na orquestração síncrona, tolerância a falhas e regras matemáticas de pagamento. A adição de persistência futura pode ser feita acoplando um repositório na camada de aplicação sem impactar o domínio.
+
+### 4. Estratégia *First Success Wins*
+- **Decisão**: O primeiro provedor que responder com sucesso entrega o resultado da consulta.
+- **Motivação**: Provedores de débitos veiculares estaduais refletem a mesma base oficial (Detran/Sefaz). Consultar múltiplos provedores em paralelo sem necessidade duplicaria custos de requisição e sobrecarregaria parceiros externos.
+
+### 5. Representação Monetária em Centavos Inteiros
+- **Decisão**: O Value Object `Money` opera internamente com centavos inteiros (`int`).
+- **Motivação**: Números de ponto flutuante em computadores sofrem com imprecisões binárias (ex: `0.1 + 0.2 !== 0.3`). O uso de centavos e o isolamento de floats exclusivamente para coeficientes analíticos (como na fórmula exponencial da Tabela Price) garante precisão matemática absoluta.
+
+---
+
+## 18. Segurança da Aplicação
+
+### Implementado
+- **Validação Estrita de Placas**: Expressão regular cobrindo padrão tradicional (`^[A-Z]{3}[0-9]{4}$`) e Mercosul (`^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$`).
+- **Rejeição de Campos Desconhecidos**: Bloqueio de propriedades não declaradas no payload de consulta para prevenir *parameter pollution* e explorações inesperadas.
+- **Headers HTTP de Segurança**: Respostas contêm `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection: 1; mode=block` e `Referrer-Policy: strict-origin-when-cross-origin`.
+- **Proteção de Dados nos Logs**: Ofuscamento automático de placas veiculares nos arquivos de log.
+- **Proteção contra Abuso (Rate Limit)**: Middleware `throttle:60,1` ativo na rota de débitos.
+
+### Melhorias Recomendadas para Produção
+- Autenticação e Autorização via tokens JWT ou OAuth2 (ex: Laravel Sanctum).
+- Terminação TLS/HTTPS em API Gateway / Load Balancer reverso.
+- Gestão centralizada de segredos através de Vault ou AWS Secrets Manager.
+
+---
+
+## 19. Melhorias Futuras
+
+Caso o projeto evolua para ambiente de produção de larga escala, as seguintes extensões arquiteturais são recomendadas:
+1. **Circuit Breaker**: Implementação do padrão Circuit Breaker para interromper temporariamente requisições a provedores externos que entrem em falha contínua.
+2. **OpenTelemetry e Distributed Tracing**: Instrumentação completa para rastrear spans de rede através de Jaeger ou Datadog.
+3. **Persistência e Histórico de Consultas**: Armazenamento relacional (PostgreSQL) com eventos de domínio para auditoria de cotações emitidas.
+4. **Gateway Financeiro Real**: Integração de liquidação real através de webhooks assíncronos e verificação de idempotência (`Idempotency-Key`).
+
+---
+
+## 20. Desenvolvimento Assistido por IA e Spec Kit
+
+A partir da Fase 13, o Cardok adotou formalmente a metodologia **Spec-Driven Development (SDD)** utilizando o [GitHub Spec Kit](https://github.com/github/spec-kit) e o agente de engenharia **Antigravity**:
+
+```text
+Constitution (.specify/memory/constitution.md)
+      │
+      ▼
+Specification (/speckit-specify  ──>  spec.md)
+      │
+      ▼
+Clarification (/speckit-clarify  ──>  desambiguação interativa)
+      │
+      ▼
+Planning      (/speckit-plan     ──>  plan.md, data-model.md, contracts/)
+      │
+      ▼
+Tasking       (/speckit-tasks    ──>  tasks.md, ordenação TDD)
+      │
+      ▼
+Execution     (/speckit-implement ──>  código, testes, validação 100%)
+```
+
+### Funcionalidade Construída com Spec Kit
+A funcionalidade de **Cache de Health Check** foi especificada e implementada integralmente através desse fluxo:
+- **Especificação**: [`specs/001-health-check-cache/spec.md`](specs/001-health-check-cache/spec.md)
+- **Plano**: [`specs/001-health-check-cache/plan.md`](specs/001-health-check-cache/plan.md)
+- **Tarefas**: [`specs/001-health-check-cache/tasks.md`](specs/001-health-check-cache/tasks.md)
+- **Registro**: [`docs/spec-driven-development.md`](docs/spec-driven-development.md)
+
+> **Princípio de Isolamento**: O ferramental de IA e as especificações residem em diretórios dedicados (`.specify/`, `specs/`). Nenhuma classe de produção depende do ferramental de assistência de código.
+
+---
+
+## 21. Licença e Contexto
+
+Este repositório foi desenvolvido exclusivamente para fins de avaliação técnica no processo seletivo da **DOK Despachante**. Todos os direitos sobre os critérios e o enunciado do teste pertencem à instituição organizadora.

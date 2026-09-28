@@ -34,7 +34,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 120s
 
   provider-rest:
     build:
@@ -49,6 +49,8 @@ services:
       - APP_DEBUG=true
       - APP_URL=http://localhost:8001
       - PROVIDER_MODE=${PROVIDER_MODE:-success}
+      - SESSION_DRIVER=array
+      - CACHE_STORE=array
     volumes:
       - ./provider-rest:/var/www/html
     networks:
@@ -58,7 +60,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 60s
 
   provider-soap:
     build:
@@ -73,6 +75,8 @@ services:
       - APP_DEBUG=true
       - APP_URL=http://localhost:8002
       - PROVIDER_MODE=${PROVIDER_MODE:-success}
+      - SESSION_DRIVER=array
+      - CACHE_STORE=array
     volumes:
       - ./provider-soap:/var/www/html
     networks:
@@ -82,7 +86,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 60s
 
   payment-provider:
     build:

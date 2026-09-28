@@ -651,7 +651,33 @@ A interface Livewire (`App\Livewire\VehicleDebtLookup`) funciona estritamente co
 
 ---
 
-## 12. Comandos Úteis
+## 12. Segurança e Hardening
+
+O Cardok adota práticas defensivas alinhadas aos padrões OWASP e boas práticas de APIs seguras:
+
+### 12.1. Proteção contra Injeção e Manipulação de Entrada
+- **Prevenção de Injeção de XML (SOAP)**: A placa do veículo é escapada explicitamente via `htmlspecialchars($plate, ENT_XML1, 'UTF-8')` antes da montagem da requisição XML para o provedor SOAP. O parser XML utiliza `LIBXML_NONET` para blindagem contra XXE (XML External Entity).
+- **Prevenção de Path Traversal e Injeção de URL (REST)**: O parâmetro da placa é normalizado e codificado via `rawurlencode()` antes de compor os endpoints externos.
+- **Validação Estrita via FormRequest (`VehicleDebtRequest`)**:
+  - Validação estrita de padrão veicular (Mercosul e Cinza) via Regex (`/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$|^[A-Z]{3}[0-9]{4}$/`).
+  - **Allowlist de Provedores**: O parâmetro opcional `provider` é restrito exclusivamente aos valores permitidos (`in:rest,soap`), rejeitando entradas inválidas com HTTP 400 em vez de disparar exceções internas não tratadas (HTTP 500).
+
+### 12.2. Proteção contra Negação de Serviço (Rate Limiting)
+- Middleware de **Rate Limiting** (`throttle:60,1`) aplicado à rota `POST /api/v1/vehicles/debts`. Evita exaustão do pool de processos PHP-FPM / Slow DoS em cenários onde requisições concorrentes exploram retries e timeouts de provedores instáveis.
+
+### 12.3. Cabeçalhos de Segurança HTTP (`SecurityHeadersMiddleware`)
+Todas as respostas HTTP do monólito incluem cabeçalhos de proteção:
+- `X-Content-Type-Options: nosniff`: previne MIME-sniffing pelo navegador.
+- `X-Frame-Options: SAMEORIGIN`: mitiga ataques de Clickjacking.
+- `X-XSS-Protection: 1; mode=block`: ativa o filtro de XSS em navegadores legados.
+- `Referrer-Policy: strict-origin-when-cross-origin`: protege o vazamento de referrers sensíveis.
+
+### 12.4. Privacidade e LGPD
+- **Mascaramento em Logs**: Todas as ocorrências da placa em logs estruturados de retry, fallback e rastreamento são mascaradas (ex: `ABC****`), garantindo proteção a dados identificadores do veículo.
+
+---
+
+## 13. Comandos Úteis
 
 - **Validar sintaxe do Docker Compose**:
   ```bash
@@ -675,4 +701,5 @@ A interface Livewire (`App\Livewire\VehicleDebtLookup`) funciona estritamente co
   ```bash
   docker compose down -v
   ```
+
 

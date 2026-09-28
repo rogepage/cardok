@@ -50,4 +50,4 @@ Route::get('/health/integrations', function () {
     ], $allHealthy ? 200 : 503);
 });
 
-Route::post('/v1/vehicles/debts', [\App\Http\Controllers\VehicleDebtIntegrationController::class, 'show']);
+Route::middleware(['throttle:60,1'])->post('/v1/vehicles/debts', [\App\Http\Controllers\VehicleDebtIntegrationController::class, 'show']);

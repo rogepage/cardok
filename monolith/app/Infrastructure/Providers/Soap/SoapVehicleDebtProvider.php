@@ -27,9 +27,10 @@ class SoapVehicleDebtProvider implements VehicleDebtProvider
         $normalizedPlate = strtoupper(trim($plate));
         $url = rtrim($this->baseUrl, '/') . '/soap';
 
+        $escapedPlate = htmlspecialchars($normalizedPlate, ENT_XML1, 'UTF-8');
         $xmlRequest = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
             . "<request>\n"
-            . "    <plate>{$normalizedPlate}</plate>\n"
+            . "    <plate>{$escapedPlate}</plate>\n"
             . "</request>";
 
         try {

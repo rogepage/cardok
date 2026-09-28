@@ -39,7 +39,7 @@ class VehicleDebtRequest extends FormRequest
     {
         return [
             'placa' => ['required', 'string', 'regex:' . self::PLATE_REGEX],
-            'provider' => ['nullable', 'string'],
+            'provider' => ['nullable', 'string', 'in:rest,soap'],
         ];
     }
 
@@ -52,6 +52,7 @@ class VehicleDebtRequest extends FormRequest
             'placa.required' => 'A placa do veiculo e obrigatoria.',
             'placa.regex' => 'A placa do veiculo informada e invalida.',
             'placa.string' => 'A placa do veiculo e obrigatoria.',
+            'provider.in' => 'O provedor informado e invalido. Provedores permitidos: rest, soap.',
         ];
     }
 
@@ -83,7 +84,7 @@ class VehicleDebtRequest extends FormRequest
     protected function failedValidation(Validator $validator): void
     {
         $errors = $validator->errors();
-        $message = $errors->first('placa') ?: 'A placa do veiculo e obrigatoria.';
+        $message = $errors->first('placa') ?: $errors->first('provider') ?: 'Parametros invalidos.';
 
         throw new HttpResponseException(
             response()->json([

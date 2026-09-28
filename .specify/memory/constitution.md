@@ -1,99 +1,106 @@
-<!--
-Sync Impact Report:
-- Version change: [TEMPLATE] -> 1.0.0 (Initial Ratification)
-- Core Principles Defined:
-  1. Clean Architecture & Domain Isolation (NON-NEGOTIABLE)
-  2. Exact Financial Precision & Monetary Invariants (NON-NEGOTIABLE)
-  3. Resilient Integration & First-Success-Wins
-  4. Strict Payment Simulation Boundaries
-  5. Temporal Determinism via Clock Injection
-  6. Pragmatic Observability & Privacy by Design (LGPD)
-  7. Automated Test Discipline & Regression Defense
-- Added Sections: Technical Constraints, Development Workflow & Quality Gates, Governance
-- Removed Sections: None (Template placeholders instantiated)
-- Templates Status:
-  - .specify/templates/plan-template.md: ✅ aligned (gates mapped to constitution checks)
-  - .specify/templates/spec-template.md: ✅ aligned (scope and requirements boundaries defined)
-  - .specify/templates/tasks-template.md: ✅ aligned (tasks reflect test-first and financial discipline)
-- Deferred Items / Follow-up: None.
--->
+# Constituição do Projeto Cardok
 
-# Cardok Constitution
+**Versão:** 1.0.0
+**Idioma dos artefatos:** pt-BR
+**Status:** Ratificada em 2026-09-28
 
-## Core Principles
+## I. Arquitetura e Isolamento do Domínio — NÃO NEGOCIÁVEL
 
-### I. Clean Architecture & Domain Isolation (NON-NEGOTIABLE)
-The core business domain (`app/Domain`) MUST remain 100% pure, framework-agnostic, and self-contained.
-- Domain entities, Value Objects, and Domain Services MUST NOT import or depend on framework classes (e.g., `Illuminate\*`), database drivers, ORM models, or transport layer components (HTTP/SOAP).
-- All infrastructure adapters, controllers, middleware, and third-party integrations MUST reside strictly in `app/Infrastructure`, `app/Application`, or `app/Http`.
-- Dependency inversion MUST be preserved: application and domain layers define contracts/interfaces; infrastructure provides implementations.
+* `app/Domain` DEVE ser independente de Laravel, banco de dados, HTTP, SOAP e infraestrutura.
+* Regras de negócio, Entities e Value Objects NÃO DEVEM depender de frameworks.
+* Dependências externas DEVEM ser acessadas por contratos/portas.
+* Implementações concretas DEVEM permanecer em `Infrastructure`.
+* REST e SOAP DEVEM ser isolados por adapters.
+* A arquitetura DEVE preservar inversão de dependência.
 
-### II. Exact Financial Precision & Monetary Invariants (NON-NEGOTIABLE)
-Financial calculations MUST operate with absolute mathematical determinism.
-- All monetary amounts MUST be represented and calculated using the `Money` Value Object internally stored in integer cents (`int`).
-- Primitives of type `float` MUST NEVER be used to represent monetary values. In mathematical formulas requiring compounding or exponential factors (such as the Price amortization table), floating-point operations MUST be strictly isolated to the dimensionless analytical coefficient and rounded directly to integer cents once via `HALF_UP`.
-- Rounding MUST follow the banking standard `HALF_UP` (`HalfUpRounder`), ensuring that interest on overdue IPVA (0.33%/day capped at 20%), overdue MULTA (1%/day), and PIX discount (5%) resolve to exact, auditable cents without cumulative drift.
+## II. Precisão Financeira — NÃO NEGOCIÁVEL
 
-### III. Resilient Integration & First-Success-Wins
-External integrations with legacy systems (REST and SOAP) MUST be shielded by an Anti-Corruption Layer.
-- External payloads MUST be mapped immediately into the unified `CanonicalDebt` model before entering application use cases.
-- Integrations MUST implement exponential retry with random jitter for transient errors (HTTP 5xx, timeouts, connection refused) up to a strict attempt limit.
-- Fallback between providers MUST follow the **First-Success-Wins** model: the primary provider is consulted first; only when its attempts are exhausted does failover occur to the secondary provider. No concurrent queries, merge, or quorum reconciliation across providers is permitted, preventing accidental duplicate billing.
-- Valid responses indicating zero debts (HTTP 200 with empty list or `<debts/>`) MUST NOT trigger fallback.
+* Valores monetários DEVEM utilizar `Money` internamente em centavos inteiros (`int`).
+* `float` NÃO DEVE representar valores monetários.
+* Cálculos que exigirem `float` DEVEM limitar seu uso a coeficientes matemáticos.
+* Valores monetários DEVEM utilizar arredondamento `HALF_UP`.
+* Arredondamentos intermediários DEVEM ser evitados quando puderem alterar o resultado.
+* A API DEVE retornar valores monetários como strings decimais.
 
-### IV. Strict Payment Simulation Boundaries
-Cardok is a financial and debt consultation platform with payment simulation capabilities.
-- The system MUST calculate and present payment options (TOTAL and individual debts via PIX with 5% discount, and Credit Card installments from 1x to 12x via Price Table).
-- The system MUST NOT execute real financial charges, connect to real payment acquirers, initiate real transactions, generate live PIX QR codes, or persist transaction orders in a database, strictly preserving the challenge scope.
+## III. Integrações e Resiliência
 
-### V. Temporal Determinism via Clock Injection
-All business rules and tests that depend on date or time calculations MUST be temporally deterministic.
-- Code calculating elapsed overdue days, interest accumulation, or maturity MUST inject and consume `ClockInterface` (`FixedClock`).
-- System or operating system time (`now()`, `Carbon::now()`, `date()`) MUST NOT be called directly within domain policies or services.
-- The production baseline date is pinned to `2024-05-10T00:00:00Z`, ensuring immutable test reproducibility today and in the future.
+* Providers externos DEVEM ser convertidos para um modelo canônico antes de entrar no domínio.
+* Erros transitórios DEVEM possuir retry limitado.
+* Retry DEVE utilizar backoff e, quando aplicável, jitter.
+* Fallback DEVE seguir **First-Success-Wins**: provider primário → retry → próximo provider.
+* Resposta válida com zero débitos NÃO DEVE disparar fallback.
+* Providers NÃO DEVEM ser consultados concorrentemente no fluxo padrão.
 
-### VI. Pragmatic Observability & Privacy by Design (LGPD)
-Every operation passing through the platform MUST be auditable, correlated, and compliant with privacy standards.
-- Every incoming HTTP request MUST be assigned a unique `Request-ID` (UUID v4), injected into logging contexts and echoed in response headers (`X-Request-ID`).
-- Logs MUST be emitted in structured JSON format, detailing events, durations (`duration_ms`), attempts, fallbacks, and execution status.
-- Sensitive data MUST be sanitized: vehicle license plates MUST be masked (e.g., `ABC****`) in all log outputs and traces to comply with LGPD principles.
+## IV. Simulação de Pagamentos
 
-### VII. Automated Test Discipline & Regression Defense
-Code quality and technical correctness MUST be continuously guarded by automated tests.
-- Every financial calculation, domain rule, resilience policy, and API contract MUST have corresponding automated unit and integration tests.
-- Zero test failure tolerance: the test suite (`php artisan test`) MUST pass with 100% success before any branch merge or release.
-- Regressions on previously fixed P0/P1 issues (such as `invalid_plate` 400 contract, unknown payload rejection, and Price installment values) are strictly unacceptable.
+O sistema DEVE somente simular pagamentos no escopo atual.
 
----
+* PIX: desconto de 5%.
+* Cartão: somente `1x`, `6x` e `12x`.
+* Parcelamento: Price, 2,5% a.m.
+* Opções: `TOTAL` e `SOMENTE_<TIPO>`.
 
-## Technical Constraints
+O sistema NÃO DEVE executar cobranças reais, gerar PIX real ou conectar-se a adquirentes reais.
 
-- **Language & Runtime:** PHP 8.2+ with strict typing (`declare(strict_types=1)` encouraged, complete argument and return type annotations).
-- **Architecture Style:** Hexagonal / Modular Monolith (Clean Architecture) with isolated mock providers.
-- **Payload Strictness:** APIs MUST reject unexpected input fields outside the published contract with `HTTP 400 Bad Request`.
-- **Infrastructure:** Docker Compose multi-container environment (`cardok-monolith`, `cardok-provider-rest`, `cardok-provider-soap`, `cardok-payment-provider`) with configured health checks and isolated network.
-- **Security Baseline:** Mandatory OWASP security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection`, `Referrer-Policy`).
+## V. Determinismo Temporal
 
----
+* Regras dependentes de tempo DEVEM utilizar uma abstração de relógio injetável.
+* O domínio NÃO DEVE utilizar diretamente `now()`, `Carbon::now()` ou `date()`.
+* A data de referência do Home Test é `2024-05-10T00:00:00Z`.
+* Comparações de data DEVEM utilizar UTC.
 
-## Development Workflow & Quality Gates
+## VI. Observabilidade e Privacidade
 
-1. **Spec-Driven Process:** Features, architectural refactorings, or modifications follow the SDD workflow (`specify` $\to$ `plan` $\to$ `tasks` $\to$ `implement`).
-2. **Pre-Implementation Verification:** All requirements, edge cases, and formulas must be validated against canonical specifications before writing production code.
-3. **Quality Gates:**
-   - Gate 1: Architecture Check (Does changes violate Domain Isolation or introduce float for money?).
-   - Gate 2: Test Suite Verification (`php artisan test` passes 100% across all services).
-   - Gate 3: Docker Orchestration Validation (`docker compose config` valid, containers healthy).
+* Requisições DEVEM possuir `Request-ID`.
+* Logs DEVEM ser estruturados.
+* Operações relevantes DEVEM registrar duração, tentativa, provider, fallback e resultado.
+* Placas DEVEM ser mascaradas nos logs.
+* Dados pessoais DEVEM ser minimizados conforme princípios da LGPD.
 
----
+## VII. Testes
 
-## Governance
+* Regras de negócio, cálculos financeiros, integrações, retry, fallback e contratos de API DEVEM possuir testes.
+* A suíte de testes DEVE passar integralmente antes de uma entrega.
+* Correções de bugs relevantes DEVEM possuir testes de regressão.
 
-- **Authority:** This Constitution is the primary architectural and engineering governance document for the Cardok project. It supersedes informal agreements and undocumented patterns.
-- **Amendments:** Any modification to this Constitution requires formal documentation, semantic version bump, and impact analysis on existing templates and tests.
-  - **MAJOR (X.0.0):** Incompatible governance shifts, removal of core principles, or architectural restructuring.
-  - **MINOR (1.X.0):** Addition of new principles, new quality gates, or expanded architectural policies.
-  - **PATCH (1.0.X):** Clarifications, typo corrections, or non-semantic refinements.
-- **Review:** All pull requests and feature plans must verify compliance against the principles defined herein.
+## VIII. Artefatos de Engenharia
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-28 | **Last Amended**: 2026-09-28
+* Constitution, specs, plans, tasks, ADRs, README e demais documentos DEVEM ser escritos em **pt-BR**.
+* Identificadores técnicos, nomes de classes, métodos, APIs, comandos, bibliotecas e protocolos DEVEM permanecer em sua forma original.
+* O código continua seguindo as convenções técnicas do projeto.
+
+## IX. Desenvolvimento Assistido por IA
+
+* Features relevantes DEVEM seguir:
+
+```text
+specify → plan → tasks → implement → validate
+```
+
+* Código gerado por IA DEVE obedecer às mesmas regras arquiteturais e de qualidade do código escrito manualmente.
+* Requisitos oficiais têm precedência sobre sugestões da IA.
+* Alterações DEVEM ser validadas por testes e pelos gates definidos nesta Constituição.
+
+## X. Gates de Qualidade
+
+Antes de concluir uma alteração, verificar:
+
+1. **Arquitetura:** domínio isolado e dependências corretas.
+2. **Financeiro:** precisão e `HALF_UP` preservados.
+3. **Testes:** suíte passando.
+4. **Integração:** retry/fallback preservados.
+5. **Docker:** `docker compose config` válido e serviços saudáveis.
+6. **Contrato:** requests, responses e códigos HTTP compatíveis.
+
+## Governança
+
+Esta Constituição é a referência arquitetural do projeto.
+
+Alterações DEVEM possuir justificativa e atualizar a versão quando alterarem o significado das regras.
+
+* **MAJOR:** mudança incompatível ou remoção de princípio.
+* **MINOR:** novo princípio ou regra relevante.
+* **PATCH:** correção ou esclarecimento sem mudança semântica.
+
+**Versão:** 1.0.0
+**Última alteração:** 2026-09-28

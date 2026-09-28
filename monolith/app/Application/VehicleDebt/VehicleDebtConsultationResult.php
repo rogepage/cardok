@@ -14,7 +14,7 @@ readonly class VehicleDebtConsultationResult
     ) {}
 
     /**
-     * Serializes the consultation result into the API response schema.
+     * Serializes the consultation result into the standardized API array format.
      *
      * @return array{
      *     placa: string,

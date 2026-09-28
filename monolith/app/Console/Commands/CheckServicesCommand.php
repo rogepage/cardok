@@ -26,7 +26,8 @@ class CheckServicesCommand extends Command
      */
     public function handle(): int
     {
-        $this->info('Verificando comunicação entre containers...');
+        $this->info('Cardok Core Status: SAUDÁVEL (Aplicação operacional)');
+        $this->line('Verificando conectividade e disponibilidade das dependências externas...');
 
         $services = [
             'provider-rest' => [
@@ -95,11 +96,11 @@ class CheckServicesCommand extends Command
         );
 
         if ($hasFailure) {
-            $this->error('Um ou mais serviços não responderam corretamente.');
+            $this->warn('Cardok permanece saudável, mas uma ou mais dependências externas estão inacessíveis ou instáveis.');
             return Command::FAILURE;
         }
 
-        $this->info('Todos os serviços estão acessíveis e respondendo com sucesso!');
+        $this->info('Todos os serviços externos estão acessíveis e saudáveis!');
         return Command::SUCCESS;
     }
 }

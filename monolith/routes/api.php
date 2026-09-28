@@ -10,6 +10,13 @@ Route::get('/health', function () {
     ]);
 });
 
+Route::get('/metrics', function (\App\Infrastructure\Observability\SimpleMetricsRegistry $metricsRegistry) {
+    return response()->json([
+        'status' => 'ok',
+        'metrics' => $metricsRegistry->getAll(),
+    ]);
+});
+
 Route::get('/health/integrations', function () {
     $services = [
         'provider-rest' => config('services.providers.rest_url') . '/api/health',

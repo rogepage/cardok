@@ -63,6 +63,7 @@ return [
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
             'replace_placeholders' => true,
+            'formatter' => \App\Infrastructure\Observability\StructuredJsonFormatter::class,
         ],
 
         'daily' => [
@@ -71,6 +72,7 @@ return [
             'level' => env('LOG_LEVEL', 'debug'),
             'max_files' => env('LOG_DAILY_DAYS', 14),
             'replace_placeholders' => true,
+            'formatter' => \App\Infrastructure\Observability\StructuredJsonFormatter::class,
         ],
 
         'monthly' => [
@@ -109,7 +111,7 @@ return [
             'handler_with' => [
                 'stream' => 'php://stderr',
             ],
-            'formatter' => env('LOG_STDERR_FORMATTER'),
+            'formatter' => \App\Infrastructure\Observability\StructuredJsonFormatter::class,
             'processors' => [PsrLogMessageProcessor::class],
         ],
 
@@ -124,6 +126,7 @@ return [
             'driver' => 'errorlog',
             'level' => env('LOG_LEVEL', 'debug'),
             'replace_placeholders' => true,
+            'formatter' => \App\Infrastructure\Observability\StructuredJsonFormatter::class,
         ],
 
         'null' => [

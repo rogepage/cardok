@@ -17,6 +17,7 @@ services:
       - PROVIDER_ORDER=rest,soap
       - PROVIDER_TIMEOUT=2
       - PROVIDER_RETRIES=2
+      - LOG_STACK=single,errorlog
     volumes:
       - ./monolith:/var/www/html
     networks:

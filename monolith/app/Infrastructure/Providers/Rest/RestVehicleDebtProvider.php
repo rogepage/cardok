@@ -27,8 +27,13 @@ class RestVehicleDebtProvider implements VehicleDebtProvider
         $encodedPlate = rawurlencode($normalizedPlate);
         $url = rtrim($this->baseUrl, '/') . "/api/v1/vehicles/{$encodedPlate}/debts";
 
+        $headers = [];
+        if (app()->bound('request_id')) {
+            $headers['X-Request-ID'] = (string) app('request_id');
+        }
+
         try {
-            $response = Http::timeout($this->timeout)->get($url);
+            $response = Http::withHeaders($headers)->timeout($this->timeout)->get($url);
         } catch (ConnectionException $e) {
             throw new ProviderUnavailableException("Connection to REST provider failed or timed out: {$e->getMessage()}", 0, $e);
         } catch (Throwable $e) {
@@ -73,6 +78,7 @@ class RestVehicleDebtProvider implements VehicleDebtProvider
         return new ProviderDebtResponse(
             plate: $normalizedPlate,
             debts: $canonicalDebts,
+            provider: 'rest',
         );
     }
 }

@@ -25,39 +25,41 @@ class VehicleDebtService
      */
     public function getDebts(string $plate, ?array $customOrder = null): ProviderDebtResponse
     {
-        $order = $customOrder ?? $this->providerResolver->getConfiguredOrder();
+        $order = array_values($customOrder ?? $this->providerResolver->getConfiguredOrder());
         $normalizedPlate = strtoupper(trim($plate));
         $errors = [];
 
-        foreach ($order as $providerKey) {
+        foreach ($order as $index => $providerKey) {
             try {
                 $provider = $this->providerResolver->resolve($providerKey);
 
                 $response = $this->providerExecutor->execute($providerKey, $provider, $normalizedPlate);
 
-                Log::info('Vehicle debts retrieved successfully', [
-                    'event' => 'vehicle_debts_retrieved',
-                    'provider' => $providerKey,
-                    'plate' => ProviderExecutor::maskPlate($normalizedPlate),
-                    'debts_count' => count($response->debts),
-                ]);
-
                 return $response;
             } catch (Throwable $e) {
                 $errors[$providerKey] = $e->getMessage();
+                $nextProvider = $order[$index + 1] ?? null;
 
-                Log::warning('Provider failed completely, attempting fallback', [
-                    'event' => 'vehicle_provider_fallback',
-                    'failed_provider' => $providerKey,
-                    'plate' => ProviderExecutor::maskPlate($normalizedPlate),
-                    'error' => $e->getMessage(),
-                ]);
+                if ($nextProvider) {
+                    \App\Infrastructure\Observability\SimpleMetricsRegistry::increment('provider_fallbacks_total', 1, [
+                        'from' => $providerKey,
+                        'to' => $nextProvider,
+                    ]);
+
+                    Log::warning('provider.fallback', [
+                        'event' => 'provider.fallback',
+                        'from' => $providerKey,
+                        'to' => $nextProvider,
+                        'reason' => $e->getMessage(),
+                        'plate' => \App\Application\Support\PlateMasker::mask($normalizedPlate),
+                    ]);
+                }
             }
         }
 
         Log::error('All configured vehicle debt providers failed', [
             'event' => 'all_vehicle_providers_failed',
-            'plate' => ProviderExecutor::maskPlate($normalizedPlate),
+            'plate' => \App\Application\Support\PlateMasker::mask($normalizedPlate),
             'tried_providers' => $order,
             'errors' => $errors,
         ]);
@@ -90,6 +92,7 @@ class VehicleDebtService
         return new VehicleDebtConsultationResult(
             calculatedDebts: $calculatedResult,
             payments: $paymentSimulation,
+            provider: $providerResponse->provider,
         );
     }
 }

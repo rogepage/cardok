@@ -11,6 +11,7 @@ readonly class VehicleDebtConsultationResult
     public function __construct(
         public CalculatedVehicleDebts $calculatedDebts,
         public PaymentSimulationResult $payments,
+        public ?string $provider = null,
     ) {}
 
     /**

@@ -2,35 +2,25 @@
 
 namespace App\Http\Controllers;
 
-use App\Application\VehicleDebt\VehicleDebtService;
+use App\Application\VehicleDebt\GetVehicleDebtsUseCase;
 use App\Domain\Debt\Exceptions\AllProvidersUnavailableException;
 use App\Domain\Debt\Exceptions\UnknownDebtTypeException;
+use App\Http\Requests\VehicleDebtRequest;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
 class VehicleDebtIntegrationController extends Controller
 {
     public function __construct(
-        private readonly VehicleDebtService $vehicleDebtService,
+        private readonly GetVehicleDebtsUseCase $useCase,
     ) {}
 
-    public function show(Request $request): JsonResponse
+    public function show(VehicleDebtRequest $request): JsonResponse
     {
-        $plate = strtoupper(trim((string) $request->input('placa')));
-
-        if ($plate === '') {
-            return response()->json([
-                'error' => 'A placa do veiculo e obrigatoria.',
-            ], 400);
-        }
-
-        $customOrder = null;
-        if ($request->filled('provider')) {
-            $customOrder = [strtolower(trim((string) $request->input('provider')))];
-        }
+        $plate = $request->getPlate();
+        $customOrder = $request->getCustomOrder();
 
         try {
-            $result = $this->vehicleDebtService->consultDebts($plate, $customOrder);
+            $result = $this->useCase->execute($plate, $customOrder);
 
             return response()->json($result->toArray(), 200);
         } catch (UnknownDebtTypeException $e) {

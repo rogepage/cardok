@@ -2,7 +2,7 @@
 
 namespace App\Livewire;
 
-use App\Application\VehicleDebt\VehicleDebtService;
+use App\Application\VehicleDebt\GetVehicleDebtsUseCase;
 use App\Domain\Debt\Exceptions\AllProvidersUnavailableException;
 use App\Domain\Debt\Exceptions\UnknownDebtTypeException;
 use Livewire\Component;
@@ -35,7 +35,7 @@ class VehicleDebtLookup extends Component
         $this->erro = null;
     }
 
-    public function consultar(VehicleDebtService $vehicleDebtService): void
+    public function consultar(GetVehicleDebtsUseCase $useCase): void
     {
         $this->erro = null;
         $this->resultado = null;
@@ -53,7 +53,7 @@ class VehicleDebtLookup extends Component
         }
 
         try {
-            $consultation = $vehicleDebtService->consultDebts($normalizedPlate);
+            $consultation = $useCase->execute($normalizedPlate);
             $this->resultado = $consultation->toArray();
         } catch (AllProvidersUnavailableException) {
             $this->erro = 'Não foi possível consultar os débitos no momento. Tente novamente em alguns instantes.';

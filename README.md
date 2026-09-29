@@ -444,7 +444,7 @@ O endpoint expõe contadores atômicos mantidos em memória:
 ### Telemetria de Cache (`X-Cache`)
 O endpoint `/api/health/integrations` inclui o cabeçalho HTTP:
 - `X-Cache: HIT`: Resposta servida a partir da memória/cache transitório em `< 15ms`.
-- `X-Cache: MISS`: Resposta originada de consulta ativa aos 3 provedores externos.
+- `X-Cache: MISS`: A resposta é originada da consulta aos provedores de débitos, respeitando a ordem configurada, retry e fallback entre os providers disponíveis.
 
 ---
 
@@ -466,6 +466,9 @@ O projeto conta com um `Makefile` na raiz para agilizar a operação, diagnósti
 | `make shell` | Abre shell interativo no contêiner do monólito |
 | `make artisan` | Executa comandos Artisan (ex: `make artisan CMD="about"`) |
 | `make demo` | Executa todos os cenários de demonstração técnica |
+| `make demo-success` | Demonstração: consulta débitos com sucesso (placa ABC1234) |
+| `make demo-fallback` | Demonstração: fallback real com falha controlada no REST, retries e sucesso no SOAP |
+| `make demo-invalid-plate` | Demonstração: validação com formato de placa inválido (erro 400) |
 
 ---
 
@@ -623,12 +626,25 @@ Tasking       (/speckit-tasks    ──>  tasks.md, ordenação TDD)
 Execution     (/speckit-implement ──>  código, testes, validação 100%)
 ```
 
-### Funcionalidade Construída com Spec Kit
-A funcionalidade de **Cache de Health Check** foi especificada e implementada integralmente através desse fluxo:
-- **Especificação**: [`specs/001-health-check-cache/spec.md`](specs/001-health-check-cache/spec.md)
-- **Plano**: [`specs/001-health-check-cache/plan.md`](specs/001-health-check-cache/plan.md)
-- **Tarefas**: [`specs/001-health-check-cache/tasks.md`](specs/001-health-check-cache/tasks.md)
-- **Registro**: [`docs/spec-driven-development.md`](docs/spec-driven-development.md)
+### Funcionalidades Construídas com Spec Kit
+
+As seguintes funcionalidades e refinamentos foram especificados e implementados através do fluxo Spec-Driven Development:
+
+1. **Cache de Health Check** (`001-health-check-cache`):
+   - **Especificação**: [`specs/001-health-check-cache/spec.md`](specs/001-health-check-cache/spec.md)
+   - **Plano**: [`specs/001-health-check-cache/plan.md`](specs/001-health-check-cache/plan.md)
+   - **Tarefas**: [`specs/001-health-check-cache/tasks.md`](specs/001-health-check-cache/tasks.md)
+
+2. **Makefile de Operação, Validação e Demonstração** (`002-cardok-makefile`):
+   - **Especificação**: [`specs/002-cardok-makefile/spec.md`](specs/002-cardok-makefile/spec.md)
+   - **Plano**: [`specs/002-cardok-makefile/plan.md`](specs/002-cardok-makefile/plan.md)
+   - **Tarefas**: [`specs/002-cardok-makefile/tasks.md`](specs/002-cardok-makefile/tasks.md)
+
+3. **Correções e Refinamentos de Pré-Entrega** (`003-pre-delivery-fixes`):
+   - **Especificação**: [`specs/003-pre-delivery-fixes/spec.md`](specs/003-pre-delivery-fixes/spec.md)
+   - **Escopo**: Demonstração de fallback real com chaveamento determinístico e rastreamento em logs (`make demo-fallback`), alinhamento da Constituição sobre retry/jitter, Value Object `Money` estrito sem `float` e inicialização robusta com `--wait`.
+
+- **Registro Arquitetural de SDD**: [`docs/spec-driven-development.md`](docs/spec-driven-development.md)
 
 > **Princípio de Isolamento**: O ferramental de IA e as especificações residem em diretórios dedicados (`.specify/`, `specs/`). Nenhuma classe de produção depende do ferramental de assistência de código.
 

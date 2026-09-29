@@ -102,5 +102,5 @@ Alterações DEVEM possuir justificativa e atualizar a versão quando alterarem 
 * **MINOR:** novo princípio ou regra relevante.
 * **PATCH:** correção ou esclarecimento sem mudança semântica.
 
-**Versão:** 1.0.0
-**Última alteração:** 2026-09-28
+**Versão:** 1.0.1
+**Última alteração:** 2026-09-29

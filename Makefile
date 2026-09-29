@@ -46,7 +46,7 @@ logs: ## Acompanha os logs unificados em tempo real
 # ------------------------------------------------------------------------------
 
 test: ## Executa a suíte de testes automatizados no monólito
-	@$(COMPOSE) up -d --wait $(MONOLITH_SERVICE) >/dev/null 2>&1 || true
+	@$(COMPOSE) up -d --wait $(MONOLITH_SERVICE)
 	@echo "==> Executando testes automatizados..."
 	@$(COMPOSE) exec $(MONOLITH_SERVICE) php artisan test
 

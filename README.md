@@ -444,7 +444,7 @@ O endpoint expõe contadores atômicos mantidos em memória:
 ### Telemetria de Cache (`X-Cache`)
 O endpoint `/api/health/integrations` inclui o cabeçalho HTTP:
 - `X-Cache: HIT`: Resposta servida a partir da memória/cache transitório em `< 15ms`.
-- `X-Cache: MISS`: Resposta originada de consulta ativa aos 3 provedores externos.
+- `X-Cache: MISS`: A resposta é originada da consulta aos provedores de débitos, respeitando a ordem configurada, retry e fallback entre os providers disponíveis.
 
 ---
 

@@ -7,8 +7,23 @@ use Illuminate\Http\JsonResponse;
 
 class VehicleDebtService
 {
+    private static function getSimulationModeFilePath(): string
+    {
+        return storage_path('framework/simulation_mode.txt');
+    }
+
     public function getDebtsResponse(string $plate, ?string $mode = null): JsonResponse
     {
+        if ($mode === null) {
+            $filePath = self::getSimulationModeFilePath();
+            if (file_exists($filePath)) {
+                $fileMode = trim((string) @file_get_contents($filePath));
+                if ($fileMode !== '') {
+                    $mode = $fileMode;
+                }
+            }
+        }
+
         $mode = $mode ?? config('services.provider_mode') ?? env('PROVIDER_MODE', 'success');
 
         return match ($mode) {
@@ -28,6 +43,33 @@ class VehicleDebtService
                 'debts' => MockVehicleDebtData::findByPlate($plate),
             ], 200),
         };
+    }
+
+    public function setSimulationMode(string $mode): void
+    {
+        $filePath = self::getSimulationModeFilePath();
+        $normalizedMode = strtolower(trim($mode));
+
+        if ($normalizedMode === '' || $normalizedMode === 'success' || $normalizedMode === 'default') {
+            if (file_exists($filePath)) {
+                @unlink($filePath);
+            }
+        } else {
+            @file_put_contents($filePath, $normalizedMode);
+        }
+    }
+
+    public function getSimulationMode(): string
+    {
+        $filePath = self::getSimulationModeFilePath();
+        if (file_exists($filePath)) {
+            $fileMode = trim((string) @file_get_contents($filePath));
+            if ($fileMode !== '') {
+                return $fileMode;
+            }
+        }
+
+        return (string) (config('services.provider_mode') ?? env('PROVIDER_MODE', 'success'));
     }
 
     private function handleTimeout(string $plate): JsonResponse

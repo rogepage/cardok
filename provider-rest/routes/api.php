@@ -11,3 +11,5 @@ Route::get('/health', function () {
 });
 
 Route::get('/v1/vehicles/{plate}/debts', [VehicleDebtController::class, 'show']);
+Route::post('/simulation/mode', [VehicleDebtController::class, 'setSimulationMode']);
+Route::get('/simulation/mode', [VehicleDebtController::class, 'getSimulationMode']);

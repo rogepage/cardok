@@ -18,13 +18,9 @@ readonly class Money
         return new self($cents);
     }
 
-    public static function fromDecimal(string|float|int $amount): self
+    public static function fromDecimal(string|int $amount): self
     {
-        if (is_float($amount)) {
-            $amountStr = number_format($amount, 2, '.', '');
-        } else {
-            $amountStr = trim((string) $amount);
-        }
+        $amountStr = trim((string) $amount);
 
         if (! preg_match('/^-?\d+(\.\d{1,2})?$/', $amountStr)) {
             throw new InvalidArgumentException("Invalid monetary amount string: {$amountStr}");

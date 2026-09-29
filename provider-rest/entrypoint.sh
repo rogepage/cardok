@@ -11,9 +11,9 @@ if [ ! -f /var/www/html/.env ]; then
     fi
 fi
 
-# Ensure composer dependencies are installed if vendor directory is missing
-if [ ! -d /var/www/html/vendor ]; then
-    echo "vendor directory not found, installing composer dependencies..."
+# Ensure composer dependencies are installed if vendor directory or autoload.php is missing
+if [ ! -f /var/www/html/vendor/autoload.php ]; then
+    echo "vendor/autoload.php not found, installing composer dependencies..."
     composer install --no-interaction --prefer-dist --optimize-autoloader
 fi
 

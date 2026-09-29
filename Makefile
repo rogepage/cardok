@@ -21,10 +21,10 @@ help: ## Mostra esta lista de comandos disponíveis
 # Ciclo de Vida do Ambiente
 # ------------------------------------------------------------------------------
 
-up: ## Inicia todos os serviços em background
-	@echo "==> Iniciando ambiente Cardok..."
-	@$(COMPOSE) up -d
-	@echo "==> Ambiente operacional. Execute 'make status' para acompanhar a saúde dos serviços."
+up: ## Inicia todos os serviços em background e aguarda prontidão
+	@echo "==> Iniciando ambiente Cardok e aguardando serviços saudáveis..."
+	@$(COMPOSE) up -d --wait
+	@echo "==> Ambiente operacional e saudável. Execute 'make status' para acompanhar os serviços."
 
 down: ## Para todos os serviços (preserva volumes de dados)
 	@echo "==> Encerrando ambiente Cardok..."
@@ -46,6 +46,7 @@ logs: ## Acompanha os logs unificados em tempo real
 # ------------------------------------------------------------------------------
 
 test: ## Executa a suíte de testes automatizados no monólito
+	@$(COMPOSE) up -d --wait $(MONOLITH_SERVICE) >/dev/null 2>&1 || true
 	@echo "==> Executando testes automatizados..."
 	@$(COMPOSE) exec $(MONOLITH_SERVICE) php artisan test
 
@@ -57,7 +58,8 @@ check: ## Executa validação geral de conformidade (config, status, testes, sa�
 	@echo "==> [1/4] Validando sintaxe do Docker Compose..."
 	@$(COMPOSE) config --quiet
 	@echo "    ✓ Configuração do Docker Compose válida."
-	@echo "==> [2/4] Verificando status dos contêineres..."
+	@echo "==> [2/4] Verificando status dos contêineres e aguardando prontidão..."
+	@$(COMPOSE) up -d --wait
 	@$(COMPOSE) ps
 	@echo "==> [3/4] Executando suíte completa de testes..."
 	@$(COMPOSE) exec $(MONOLITH_SERVICE) php artisan test

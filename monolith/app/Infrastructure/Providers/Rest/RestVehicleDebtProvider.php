@@ -62,7 +62,16 @@ class RestVehicleDebtProvider implements VehicleDebtProvider
             }
 
             try {
-                $amount = Money::fromDecimal($item['amount']);
+                $rawAmount = $item['amount'];
+                if (is_float($rawAmount)) {
+                    $rawAmount = number_format($rawAmount, 2, '.', '');
+                } elseif (is_int($rawAmount)) {
+                    $rawAmount = (string) $rawAmount;
+                } elseif (is_string($rawAmount)) {
+                    $rawAmount = trim($rawAmount);
+                }
+
+                $amount = Money::fromDecimal($rawAmount);
                 $dueDate = CarbonImmutable::parse((string) $item['due_date']);
             } catch (Throwable $e) {
                 throw new InvalidProviderResponseException("REST debt item at index {$index} contains invalid values: {$e->getMessage()}", 0, $e);

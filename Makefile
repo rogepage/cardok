@@ -88,12 +88,8 @@ demo-success: ## Demonstração: consulta débitos com sucesso (placa ABC1234)
 		-d '{"placa":"ABC1234"}' | (command -v jq >/dev/null 2>&1 && jq . || cat)
 	@echo ""
 
-demo-fallback: ## Demonstração: consulta com fallback para provedor SOAP
-	@echo "==> [DEMO] Consultando débitos via provedor SOAP (Resiliência e Fallback):"
-	@curl -s -X POST http://localhost:8000/api/v1/vehicles/debts \
-		-H "Content-Type: application/json" \
-		-d '{"placa":"ABC1234","provider":"soap"}' | (command -v jq >/dev/null 2>&1 && jq . || cat)
-	@echo ""
+demo-fallback: ## Demonstração: fallback real com falha controlada no REST, retries e sucesso no SOAP
+	@./scripts/demo-fallback.sh
 
 demo-invalid-plate: ## Demonstração: validação com formato de placa inválido
 	@echo "==> [DEMO] Consultando com placa inválida INVALID (Validação e erro 400):"

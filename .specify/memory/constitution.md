@@ -1,8 +1,8 @@
 # Constituição do Projeto Cardok
 
-**Versão:** 1.0.0
+**Versão:** 1.0.1
 **Idioma dos artefatos:** pt-BR
-**Status:** Ratificada em 2026-09-28
+**Status:** Ratificada em 2026-09-28 (Atualizada em 2026-09-29)
 
 ## I. Arquitetura e Isolamento do Domínio — NÃO NEGOCIÁVEL
 
@@ -26,7 +26,7 @@
 
 * Providers externos DEVEM ser convertidos para um modelo canônico antes de entrar no domínio.
 * Erros transitórios DEVEM possuir retry limitado.
-* Retry DEVE utilizar backoff e, quando aplicável, jitter.
+* Retry DEVE utilizar backoff limitado. Jitter pode ser utilizado quando necessário.
 * Fallback DEVE seguir **First-Success-Wins**: provider primário → retry → próximo provider.
 * Resposta válida com zero débitos NÃO DEVE disparar fallback.
 * Providers NÃO DEVEM ser consultados concorrentemente no fluxo padrão.

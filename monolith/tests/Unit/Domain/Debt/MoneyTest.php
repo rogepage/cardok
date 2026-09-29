@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Tests\Unit\Domain\Debt;
 
 use App\Domain\Debt\Money;
@@ -16,16 +18,23 @@ class MoneyTest extends TestCase
         $this->assertSame('1500.00', $money->toDecimal());
     }
 
-    public function test_creates_money_from_float_and_int(): void
+    public function test_creates_money_from_string_and_int(): void
     {
-        $fromFloat = Money::fromDecimal(300.50);
+        $fromString = Money::fromDecimal('300.50');
         $fromInt = Money::fromDecimal(100);
 
-        $this->assertSame(30050, $fromFloat->getAmountInCents());
-        $this->assertSame('300.50', $fromFloat->toDecimal());
+        $this->assertSame(30050, $fromString->getAmountInCents());
+        $this->assertSame('300.50', $fromString->toDecimal());
 
         $this->assertSame(10000, $fromInt->getAmountInCents());
         $this->assertSame('100.00', $fromInt->toDecimal());
+    }
+
+    public function test_rejects_float_type(): void
+    {
+        $this->expectException(\TypeError::class);
+        /** @phpstan-ignore-next-line */
+        Money::fromDecimal(300.50);
     }
 
     public function test_rejects_invalid_decimal_strings(): void

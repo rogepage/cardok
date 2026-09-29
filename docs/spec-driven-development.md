@@ -76,4 +76,6 @@ A adoção do Spec Kit não altera a arquitetura existente do Cardok. As camadas
 | Feature | Branch | Especificação | Status |
 | :--- | :--- | :--- | :--- |
 | `001-health-check-cache` | `001-health-check-cache` | [`specs/001-health-check-cache/spec.md`](../specs/001-health-check-cache/spec.md) | ✅ Implementada |
+| `002-cardok-makefile` | `002-cardok-makefile` | [`specs/002-cardok-makefile/spec.md`](../specs/002-cardok-makefile/spec.md) | ✅ Implementada |
+| `003-pre-delivery-fixes` | `003-pre-delivery-fixes` | [`specs/003-pre-delivery-fixes/spec.md`](../specs/003-pre-delivery-fixes/spec.md) | ✅ Implementada |
 

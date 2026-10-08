@@ -39,7 +39,7 @@ class VehicleDebtRequest extends FormRequest
     {
         return [
             'placa' => ['required', 'string', 'regex:' . self::PLATE_REGEX],
-            'provider' => ['nullable', 'string', 'in:rest,soap'],
+            'provider' => ['nullable', 'string', 'in:rest,soap,ai,csv'],
         ];
     }
 
@@ -52,7 +52,7 @@ class VehicleDebtRequest extends FormRequest
             'placa.required' => 'A placa do veiculo e obrigatoria.',
             'placa.regex' => 'A placa do veiculo informada e invalida.',
             'placa.string' => 'A placa do veiculo e obrigatoria.',
-            'provider.in' => 'O provedor informado e invalido. Provedores permitidos: rest, soap.',
+            'provider.in' => 'O provedor informado e invalido. Provedores permitidos: rest, soap, ai, csv.',
         ];
     }
 

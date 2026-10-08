@@ -191,6 +191,7 @@ class ObservabilityTest extends TestCase
         Http::fake([
             'http://provider-rest:8000/*' => Http::response('Server Error', 500),
             'http://provider-soap:8000/*' => Http::response('Server Error', 500),
+            'http://provider-csv:8000/*' => Http::response('Server Error', 500),
         ]);
 
         $response = $this->postJson('/api/v1/vehicles/debts', [

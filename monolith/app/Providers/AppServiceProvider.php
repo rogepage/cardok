@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Application\VehicleDebt\ProviderExecutor;
 use App\Application\VehicleDebt\ProviderResolver;
 use App\Application\VehicleDebt\VehicleDebtService;
+use App\Infrastructure\Providers\Ai\AiVehicleDebtProvider;
 use App\Infrastructure\Providers\Rest\RestVehicleDebtProvider;
 use App\Infrastructure\Providers\Soap\SoapVehicleDebtProvider;
 use Illuminate\Support\ServiceProvider;
@@ -30,6 +31,13 @@ class AppServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->singleton(AiVehicleDebtProvider::class, function () {
+            return new AiVehicleDebtProvider(
+                baseUrl: (string) config('services.providers.ai_url', 'http://provider-csv:8000'),
+                timeout: (int) config('services.providers.timeout', 2),
+            );
+        });
+
         $this->app->singleton(ProviderExecutor::class, function () {
             return new ProviderExecutor(
                 maxRetries: (int) config('services.providers.retries', 2),
@@ -38,9 +46,13 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(ProviderResolver::class, function ($app) {
+            $aiProvider = $app->make(AiVehicleDebtProvider::class);
+
             return new ProviderResolver([
                 'rest' => $app->make(RestVehicleDebtProvider::class),
                 'soap' => $app->make(SoapVehicleDebtProvider::class),
+                'ai' => $aiProvider,
+                'csv' => $aiProvider,
             ]);
         });
         $this->app->singleton(VehicleDebtService::class);

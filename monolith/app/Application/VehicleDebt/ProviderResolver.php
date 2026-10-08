@@ -57,7 +57,7 @@ class ProviderResolver
      */
     public function getConfiguredOrder(): array
     {
-        $configured = config('services.providers.order', ['rest', 'soap']);
+        $configured = config('services.providers.order', ['rest', 'soap', 'csv']);
 
         if (is_string($configured)) {
             $configured = explode(',', $configured);

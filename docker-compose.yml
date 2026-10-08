@@ -13,8 +13,10 @@ services:
       - APP_URL=http://localhost:8000
       - PROVIDER_REST_URL=http://provider-rest:8000
       - PROVIDER_SOAP_URL=http://provider-soap:8000
+      - PROVIDER_AI_URL=http://provider-csv:8000
+      - PROVIDER_CSV_URL=http://provider-csv:8000
       - PAYMENT_PROVIDER_URL=http://payment-provider:8000
-      - PROVIDER_ORDER=rest,soap
+      - PROVIDER_ORDER=rest,soap,csv
       - PROVIDER_TIMEOUT=2
       - PROVIDER_RETRIES=2
       - LOG_STACK=single,errorlog
@@ -26,6 +28,8 @@ services:
       provider-rest:
         condition: service_healthy
       provider-soap:
+        condition: service_healthy
+      provider-csv:
         condition: service_healthy
       payment-provider:
         condition: service_healthy
@@ -83,6 +87,32 @@ services:
       - cardok-network
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 60s
+
+  provider-csv:
+    build:
+      context: ./provider-csv
+      dockerfile: Dockerfile
+    container_name: cardok-provider-csv
+    ports:
+      - "8003:8000"
+    environment:
+      - APP_NAME=Cardok-Provider-Csv
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - APP_URL=http://localhost:8003
+      - PROVIDER_MODE=${PROVIDER_MODE:-success}
+      - SESSION_DRIVER=array
+      - CACHE_STORE=array
+    volumes:
+      - ./provider-csv:/var/www/html
+    networks:
+      - cardok-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8000/api/health || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5

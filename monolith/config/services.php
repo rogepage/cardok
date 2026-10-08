@@ -38,7 +38,9 @@ return [
     'providers' => [
         'rest_url' => env('PROVIDER_REST_URL', 'http://provider-rest:8000'),
         'soap_url' => env('PROVIDER_SOAP_URL', 'http://provider-soap:8000'),
-        'order' => explode(',', env('PROVIDER_ORDER', 'rest,soap')),
+        'ai_url' => env('PROVIDER_AI_URL', env('PROVIDER_CSV_URL', 'http://provider-csv:8000')),
+        'csv_url' => env('PROVIDER_CSV_URL', env('PROVIDER_AI_URL', 'http://provider-csv:8000')),
+        'order' => explode(',', env('PROVIDER_ORDER', 'rest,soap,csv')),
         'timeout' => (int) env('PROVIDER_TIMEOUT', 2),
         'retries' => (int) env('PROVIDER_RETRIES', 2),
         'backoff_ms' => (int) env('PROVIDER_BACKOFF_MS', 100),

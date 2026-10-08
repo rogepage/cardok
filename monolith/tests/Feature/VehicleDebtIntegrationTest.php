@@ -278,6 +278,84 @@ class VehicleDebtIntegrationTest extends TestCase
             ]);
     }
 
+    public function test_endpoint_returns_debts_from_ai_provider(): void
+    {
+        $csv = <<<CSV
+tipo,valor,vencimento
+IPVA,1500.00,2024-01-10
+MULTA,300.50,2024-02-15
+CSV;
+
+        Http::fake([
+            'http://provider-csv:8000/api/v1/debts/ABC1234' => Http::response($csv, 200, ['Content-Type' => 'text/plain']),
+        ]);
+
+        $response = $this->postJson('/api/v1/vehicles/debts', [
+            'placa' => 'ABC1234',
+            'provider' => 'ai',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'placa' => 'ABC1234',
+                'debitos' => [
+                    [
+                        'tipo' => 'IPVA',
+                        'valor_original' => '1500.00',
+                        'valor_atualizado' => '1800.00',
+                        'vencimento' => '2024-01-10',
+                        'dias_atraso' => 121,
+                    ],
+                    [
+                        'tipo' => 'MULTA',
+                        'valor_original' => '300.50',
+                        'valor_atualizado' => '555.93',
+                        'vencimento' => '2024-02-15',
+                        'dias_atraso' => 85,
+                    ],
+                ],
+            ]);
+    }
+
+    public function test_endpoint_returns_debts_from_csv_provider(): void
+    {
+        $csv = <<<CSV
+tipo,valor,vencimento
+IPVA,1500.00,2024-01-10
+MULTA,300.50,2024-02-15
+CSV;
+
+        Http::fake([
+            'http://provider-csv:8000/api/v1/debts/ABC1234' => Http::response($csv, 200, ['Content-Type' => 'text/plain']),
+        ]);
+
+        $response = $this->postJson('/api/v1/vehicles/debts', [
+            'placa' => 'ABC1234',
+            'provider' => 'csv',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'placa' => 'ABC1234',
+                'debitos' => [
+                    [
+                        'tipo' => 'IPVA',
+                        'valor_original' => '1500.00',
+                        'valor_atualizado' => '1800.00',
+                        'vencimento' => '2024-01-10',
+                        'dias_atraso' => 121,
+                    ],
+                    [
+                        'tipo' => 'MULTA',
+                        'valor_original' => '300.50',
+                        'valor_atualizado' => '555.93',
+                        'vencimento' => '2024-02-15',
+                        'dias_atraso' => 85,
+                    ],
+                ],
+            ]);
+    }
+
     public function test_endpoint_automatically_uses_configured_order_and_falls_back_to_soap_when_rest_fails(): void
     {
         $soapXml = '<?xml version="1.0" encoding="UTF-8"?>
@@ -600,7 +678,7 @@ class VehicleDebtIntegrationTest extends TestCase
 
         $response->assertStatus(400)
             ->assertJson([
-                'error' => 'O provedor informado e invalido. Provedores permitidos: rest, soap.',
+                'error' => 'O provedor informado e invalido. Provedores permitidos: rest, soap, ai, csv.',
             ]);
     }
 

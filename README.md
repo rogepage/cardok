@@ -90,6 +90,7 @@ O ecossistema é baseado em um **Monólito Modular** desenvolvido em Laravel 10 
 | `cardok-monolith` | `monolith` | `8000` | `8000` | Núcleo da aplicação: validação, orquestração, regras de negócio e API |
 | `cardok-provider-rest` | `provider-rest` | `8001` | `8000` | Provedor externo simulado que responde em JSON via HTTP REST |
 | `cardok-provider-soap` | `provider-soap` | `8002` | `8000` | Provedor externo simulado que processa e responde envelopes XML |
+| `cardok-provider-csv` | `provider-csv` | `8003` | `8000` | Provedor externo simulado com IA respondendo em plaintext CSV |
 | `cardok-payment-provider` | `payment-provider` | *N/A* | `8000` | Mock leve para validação de conectividade interna e saúde de rede |
 
 ---
@@ -233,8 +234,25 @@ Resposta HTTP 200 JSON estruturada
   ```
 - **Tratamento de Veículo Sem Débitos**: O provedor SOAP retorna a tag auto-fechada `<debts/>`. O adaptador do monólito reconhece a tag vazia e normaliza como uma coleção vazia sem disparar erros de parsing.
 
+### Provedor de IA em Plaintext CSV (`provider-csv`)
+- **Transporte**: HTTP GET com corpo em texto puro (`text/plain` ou `text/csv`).
+- **URL Alvo**: `http://provider-csv:8000/api/v1/debts/{plate}`
+- **Porta no Host**: `8003`
+- **Contrato de Resposta**:
+  ```text
+  tipo,valor,vencimento
+  IPVA,1500.00,2024-01-10
+  MULTA,300.50,2024-02-15
+  ```
+- **Robustez e Defensividade**:
+  - Aceita delimitadores de coluna por vírgula (`,`) ou ponto e vírgula (`;`).
+  - Tolera e remove delimitadores de blocos de código Markdown (````csv ... ````) e preâmbulos em texto.
+  - Normaliza valores monetários com ponto ou vírgula decimal sem uso de `float`.
+  - Descarta categorias não suportadas (ex.: `DPVAT`) com registro de log de aviso (`warning`), retendo débitos válidos.
+  - Respostas com cabeçalho apenas ou indicando ausência de débitos são convertidas para coleção vazia sem disparar fallback.
+
 ### Simulação de Falhas nos Provedores (`PROVIDER_MODE`)
-É possível alterar o comportamento de ambos os provedores via variável de ambiente `PROVIDER_MODE` no `.env` ou `docker-compose.yml`:
+É possível alterar o comportamento dos provedores via variável de ambiente `PROVIDER_MODE` no `.env` ou `docker-compose.yml`:
 - `success`: Responde normalmente com a massa de dados mockada (padrão).
 - `error`: Retorna HTTP 500 simulando instabilidade externa.
 - `timeout`: Aguarda 5 segundos antes de responder, estourando o timeout de 2s do monólito.
@@ -244,7 +262,7 @@ Resposta HTTP 200 JSON estruturada
 
 ## 8. Estratégia de Resiliência: Retry e Fallback
 
-- **Ordem dos Provedores**: Definida por padrão como `rest,soap` (configurável via variável de ambiente `PROVIDER_ORDER`).
+- **Ordem dos Provedores**: Definida por padrão como `rest,soap,csv` (configurável via variável de ambiente `PROVIDER_ORDER`).
 - **Quantidade de Tentativas**: Configurada por `PROVIDER_RETRIES` (padrão `2`). O total de tentativas por provedor é $1 + 2 = 3$.
 - **Backoff Linear**: Intervalo progressivo entre retries calculado por `tentativa * 100ms` (100ms na 1ª repetição, 200ms na 2ª repetição).
 - **Classificação de Falhas**:

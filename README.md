@@ -51,13 +51,13 @@ O projeto atende a todos os requisitos do Home Test:
 
 - [x] **Múltiplos Provedores Externos**: Suporte a provedores REST e SOAP em portas e containers independentes.
 - [x] **Normalização Canônica**: Desacoplamento entre o formato externo dos fornecedores e o modelo interno da aplicação.
-- [x] **Cálculo Preciso de Juros**: Políticas de cálculo separadas para IPVA (0,33%/dia com teto de 20%) e MULTA (1,00%/dia sem teto).
+- [x] **Cálculo Preciso de Juros**: Políticas de cálculo separadas para IPVA (0,33%/dia com teto de 20%), MULTA (1,00%/dia sem teto) e LICENCIAMENTO (0,33%/dia com teto de 20%).
 - [x] **Simulação de Pagamentos**: Cálculo de PIX com 5% de desconto e Cartão em 1x, 6x e 12x a 2,5% a.m. (Tabela Price).
-- [x] **Opções Totais e Parciais**: Geração de opção `TOTAL` e opções individuais agrupadas (`SOMENTE_IPVA`, `SOMENTE_MULTA`).
+- [x] **Opções Totais e Parciais**: Geração de opção `TOTAL` e opções individuais agrupadas (`SOMENTE_IPVA`, `SOMENTE_MULTA`, `SOMENTE_LICENCIAMENTO`).
 - [x] **Resiliência Transparente**: Retries lineares com backoff e fallback automático (*First Success Wins*).
 - [x] **Design Defensivo**: Validação de formato de placa (Tradicional e Mercosul) e rejeição imediata de campos desconhecidos.
 - [x] **Observabilidade Estruturada**: Mascaramento de dados sensíveis nos logs, propagação de `X-Request-ID`, contadores atômicos em `/api/metrics` e telemetria de cache com `X-Cache`.
-- [x] **Testes Automatizados**: 100% de testes verdes (128 testes no ecossistema: 114 no monólito, 7 no REST e 7 no SOAP).
+- [x] **Testes Automatizados**: 100% de testes verdes (144 testes no ecossistema: 130 no monólito, 7 no REST e 7 no SOAP).
 
 ---
 
@@ -114,14 +114,15 @@ monolith/app/
 │   │   ├── Clock/                 # Relógio injetável (FixedClock para testes)
 │   │   ├── Contracts/             # Interfaces dos adaptadores de provedores
 │   │   ├── Exceptions/            # Exceções ricas de domínio
-│   │   ├── Interest/              # Políticas de cálculo de juros
+│   │   ├── Policies/              # Políticas de cálculo de juros
 │   │   │   ├── DebtInterestPolicyInterface.php
 │   │   │   ├── DebtInterestPolicyRegistry.php
 │   │   │   ├── IpvaInterestPolicy.php
+│   │   │   ├── LicenciamentoInterestPolicy.php
 │   │   │   └── MultaInterestPolicy.php
 │   │   ├── Rounding/              # Arredondamento financeiro HALF_UP
 │   │   ├── Debt.php               # Entidade canônica de débito
-│   │   ├── DebtType.php           # Enum tipado (IPVA, MULTA)
+│   │   ├── DebtType.php           # Enum tipado (IPVA, MULTA, LICENCIAMENTO)
 │   │   └── Money.php              # Value Object imutável em centavos inteiros
 │   └── Payment/                   # Simulação de meios de pagamento
 │       ├── Contracts/             # Interfaces de calculadoras de pagamento

@@ -462,7 +462,7 @@ class VehicleDebtIntegrationTest extends TestCase
                         'due_date' => '2024-01-10',
                     ],
                     [
-                        'type' => 'LICENCIAMENTO',
+                        'type' => 'SEGURO_DPVAT',
                         'amount' => 150.00,
                         'due_date' => '2024-03-01',
                     ],
@@ -477,7 +477,7 @@ class VehicleDebtIntegrationTest extends TestCase
         $response->assertStatus(422)
             ->assertExactJson([
                 'error' => 'unknown_debt_type',
-                'type' => 'LICENCIAMENTO',
+                'type' => 'SEGURO_DPVAT',
             ]);
     }
 

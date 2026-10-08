@@ -20,6 +20,13 @@ class MockVehicleDebtData
                 'due_date' => '2024-02-15',
             ],
         ],
+        'LIC2024' => [
+            [
+                'type' => 'LICENCIAMENTO',
+                'amount' => 150.00,
+                'due_date' => '2024-04-30',
+            ],
+        ],
     ];
 
     /**

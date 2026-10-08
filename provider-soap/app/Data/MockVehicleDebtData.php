@@ -20,6 +20,13 @@ class MockVehicleDebtData
                 'expiration' => '2024-02-15',
             ],
         ],
+        'LIC2024' => [
+            [
+                'category' => 'LICENCIAMENTO',
+                'value' => '150.00',
+                'expiration' => '2024-04-30',
+            ],
+        ],
     ];
 
     /**

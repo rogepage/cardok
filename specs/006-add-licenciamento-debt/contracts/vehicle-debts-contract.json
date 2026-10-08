@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VehicleDebtResponseWithLicenciamento",
+  "type": "object",
+  "required": ["placa", "debitos", "resumo", "pagamentos"],
+  "properties": {
+    "placa": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$"
+    },
+    "debitos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tipo", "valor_original", "valor_atualizado", "vencimento", "dias_atraso"],
+        "properties": {
+          "tipo": {
+            "type": "string",
+            "enum": ["IPVA", "MULTA", "LICENCIAMENTO"]
+          },
+          "valor_original": { "type": "string", "pattern": "^[0-9]+\\.[0-9]{2}$" },
+          "valor_atualizado": { "type": "string", "pattern": "^[0-9]+\\.[0-9]{2}$" },
+          "vencimento": { "type": "string", "format": "date" },
+          "dias_atraso": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "resumo": {
+      "type": "object",
+      "required": ["total_original", "total_atualizado"],
+      "properties": {
+        "total_original": { "type": "string", "pattern": "^[0-9]+\\.[0-9]{2}$" },
+        "total_atualizado": { "type": "string", "pattern": "^[0-9]+\\.[0-9]{2}$" }
+      }
+    },
+    "pagamentos": {
+      "type": "object",
+      "required": ["opcoes"],
+      "properties": {
+        "opcoes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tipo", "valor_base", "pix", "cartao_credito"],
+            "properties": {
+              "tipo": {
+                "type": "string",
+                "enum": ["TOTAL", "SOMENTE_IPVA", "SOMENTE_MULTA", "SOMENTE_LICENCIAMENTO"]
+              },
+              "valor_base": { "type": "string", "pattern": "^[0-9]+\\.[0-9]{2}$" },
+              "pix": {
+                "type": "object",
+                "required": ["total_com_desconto"],
+                "properties": {
+                  "total_com_desconto": { "type": "string", "pattern": "^[0-9]+\\.[0-9]{2}$" }
+                }
+              },
+              "cartao_credito": {
+                "type": "object",
+                "required": ["parcelas"],
+                "properties": {
+                  "parcelas": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["quantidade", "valor_parcela"],
+                      "properties": {
+                        "quantidade": { "type": "integer", "enum": [1, 6, 12] },
+                        "valor_parcela": { "type": "string", "pattern": "^[0-9]+\\.[0-9]{2}$" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

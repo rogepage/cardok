@@ -103,4 +103,28 @@ class RestVehicleDebtProviderTest extends TestCase
         $this->expectException(InvalidProviderResponseException::class);
         $provider->getDebts('ABC1234');
     }
+
+    public function test_converts_licenciamento_debt(): void
+    {
+        Http::fake([
+            'http://mock-rest/api/v1/vehicles/LIC1234/debts' => Http::response([
+                'vehicle' => 'LIC1234',
+                'debts' => [
+                    [
+                        'type' => 'LICENCIAMENTO',
+                        'amount' => 150.00,
+                        'due_date' => '2024-03-31',
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $provider = new RestVehicleDebtProvider('http://mock-rest');
+        $response = $provider->getDebts('LIC1234');
+
+        $this->assertCount(1, $response->debts);
+        $this->assertSame('LICENCIAMENTO', $response->debts[0]->type);
+        $this->assertSame('150.00', $response->debts[0]->amount->toDecimal());
+        $this->assertSame('2024-03-31', $response->debts[0]->dueDate->toDateString());
+    }
 }

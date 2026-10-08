@@ -6,6 +6,7 @@ enum DebtType: string
 {
     case IPVA = 'IPVA';
     case MULTA = 'MULTA';
+    case LICENCIAMENTO = 'LICENCIAMENTO';
 
     public static function tryFromNormalized(string $type): ?self
     {

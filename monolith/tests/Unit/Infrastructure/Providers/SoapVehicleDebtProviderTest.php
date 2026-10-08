@@ -105,4 +105,31 @@ class SoapVehicleDebtProviderTest extends TestCase
         $this->expectException(InvalidProviderResponseException::class);
         $provider->getDebts('ABC1234');
     }
+
+    public function test_converts_licenciamento_debt(): void
+    {
+        $xml = '<?xml version="1.0" encoding="UTF-8"?>
+<response>
+    <plate>LIC1234</plate>
+    <debts>
+        <debt>
+            <category>LICENCIAMENTO</category>
+            <value>150.00</value>
+            <expiration>2024-03-31</expiration>
+        </debt>
+    </debts>
+</response>';
+
+        Http::fake([
+            'http://mock-soap/soap' => Http::response($xml, 200, ['Content-Type' => 'application/xml']),
+        ]);
+
+        $provider = new SoapVehicleDebtProvider('http://mock-soap');
+        $response = $provider->getDebts('LIC1234');
+
+        $this->assertCount(1, $response->debts);
+        $this->assertSame('LICENCIAMENTO', $response->debts[0]->type);
+        $this->assertSame('150.00', $response->debts[0]->amount->toDecimal());
+        $this->assertSame('2024-03-31', $response->debts[0]->dueDate->toDateString());
+    }
 }

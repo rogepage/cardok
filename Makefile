@@ -83,11 +83,11 @@ artisan: ## Executa comandos Artisan (ex: make artisan CMD="about")
 # Demonstrações Técnicas
 # ------------------------------------------------------------------------------
 
-demo-success: ## Demonstração: consulta débitos com sucesso (placa ABC1234)
-	@echo "==> [DEMO] Consultando débitos da placa ABC1234 (Sucesso com cálculo e parcelamento):"
+demo-success: ## Demonstração: consulta débitos com sucesso (placa LIC2024)
+	@echo "==> [DEMO] Consultando débitos da placa LIC2024 (Sucesso com cálculo e parcelamento):"
 	@curl -s -X POST http://localhost:8000/api/v1/vehicles/debts \
 		-H "Content-Type: application/json" \
-		-d '{"placa":"ABC1234"}' | (command -v jq >/dev/null 2>&1 && jq . || cat)
+		-d '{"placa":"LIC2024"}' | (command -v jq >/dev/null 2>&1 && jq . || cat)
 	@echo ""
 
 demo-fallback: ## Demonstração: fallback real com falha controlada no REST, retries e sucesso no SOAP

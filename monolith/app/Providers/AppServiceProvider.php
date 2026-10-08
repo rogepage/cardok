@@ -53,6 +53,7 @@ class AppServiceProvider extends ServiceProvider
             return new \App\Domain\Debt\Policies\DebtInterestPolicyRegistry([
                 new \App\Domain\Debt\Policies\IpvaInterestPolicy(),
                 new \App\Domain\Debt\Policies\MultaInterestPolicy(),
+                new \App\Domain\Debt\Policies\LicenciamentoInterestPolicy(),
             ]);
         });
 

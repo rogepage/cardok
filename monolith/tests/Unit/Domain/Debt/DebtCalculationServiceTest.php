@@ -9,6 +9,7 @@ use App\Domain\Debt\Exceptions\UnknownDebtTypeException;
 use App\Domain\Debt\Money;
 use App\Domain\Debt\Policies\DebtInterestPolicyRegistry;
 use App\Domain\Debt\Policies\IpvaInterestPolicy;
+use App\Domain\Debt\Policies\LicenciamentoInterestPolicy;
 use App\Domain\Debt\Policies\MultaInterestPolicy;
 use App\Domain\Debt\ProviderDebtResponse;
 use App\Domain\Debt\Services\DebtCalculationService;
@@ -28,6 +29,7 @@ class DebtCalculationServiceTest extends TestCase
         $registry = new DebtInterestPolicyRegistry([
             new IpvaInterestPolicy(),
             new MultaInterestPolicy(),
+            new LicenciamentoInterestPolicy(),
         ]);
 
         $this->service = new DebtCalculationService($registry, $this->clock);
@@ -166,7 +168,7 @@ class DebtCalculationServiceTest extends TestCase
     {
         $response = new ProviderDebtResponse('ABC1234', [
             new Debt('IPVA', Money::fromDecimal('1500.00'), CarbonImmutable::parse('2024-01-10', 'UTC')),
-            new Debt('LICENCIAMENTO', Money::fromDecimal('150.00'), CarbonImmutable::parse('2024-03-01', 'UTC')),
+            new Debt('SEGURO_DPVAT', Money::fromDecimal('150.00'), CarbonImmutable::parse('2024-03-01', 'UTC')),
         ]);
 
         $this->expectException(UnknownDebtTypeException::class);
@@ -174,9 +176,25 @@ class DebtCalculationServiceTest extends TestCase
         try {
             $this->service->calculate($response);
         } catch (UnknownDebtTypeException $e) {
-            $this->assertSame('LICENCIAMENTO', $e->getDebtType());
+            $this->assertSame('SEGURO_DPVAT', $e->getDebtType());
             throw $e;
         }
+    }
+
+    public function test_calculates_licenciamento_scenario(): void
+    {
+        $response = new ProviderDebtResponse('ABC1234', [
+            new Debt('LICENCIAMENTO', Money::fromDecimal('100.00'), CarbonImmutable::parse('2024-04-30', 'UTC')),
+        ]);
+
+        $result = $this->service->calculate($response);
+
+        $this->assertCount(1, $result->debts);
+        $licenciamento = $result->debts[0];
+        $this->assertSame(DebtType::LICENCIAMENTO, $licenciamento->type);
+        $this->assertSame('100.00', $licenciamento->originalAmount->toDecimal());
+        $this->assertSame('103.30', $licenciamento->updatedAmount->toDecimal());
+        $this->assertSame(10, $licenciamento->daysOverdue);
     }
 
     public function test_handles_zero_debts_correctly(): void
